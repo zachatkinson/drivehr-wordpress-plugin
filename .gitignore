@@ -1,0 +1,44 @@
+# WordPress Plugin Development
+# DriveHR Job Sync Webhook Handler
+
+# OS Files
+.DS_Store
+Thumbs.db
+
+# Editor Files
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+
+# Build Files
+*.zip
+*.tar.gz
+build/
+dist/
+
+# Development Files
+node_modules/
+vendor/
+composer.lock
+package-lock.json
+
+# Testing
+phpunit.xml
+.phpunit.cache/
+coverage/
+*.log
+
+# Environment
+.env
+.env.local
+
+# WordPress
+wp-config.php
+/wp-content/uploads/
+/wp-content/upgrade/
+/wp-content/cache/
+
+# Documentation builds
+docs/_build/

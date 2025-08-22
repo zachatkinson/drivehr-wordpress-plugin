@@ -1,0 +1,61 @@
+DRIVEHR JOB SYNC WEBHOOK HANDLER v1.1.4
+==========================================
+
+QUICK INSTALLATION GUIDE
+========================
+
+1. UPLOAD PLUGIN
+   - Upload entire 'drivehr-webhook' folder to: /wp-content/plugins/
+   - OR upload to: /wp-content/mu-plugins/ (for must-use plugin)
+
+2. ACTIVATE (if regular plugin)
+   - Go to WordPress Admin > Plugins
+   - Find "DriveHR Job Sync Webhook Handler"
+   - Click "Activate"
+
+3. CONFIGURE WORDPRESS
+   Add these lines to your wp-config.php file:
+
+   define('DRIVEHR_WEBHOOK_SECRET', 'your-webhook-secret-here');
+   define('DRIVEHR_WEBHOOK_ENABLED', true);
+
+   IMPORTANT: Replace 'your-webhook-secret-here' with a secure random string
+
+4. UPDATE NETLIFY FUNCTION
+   Set these environment variables in your Netlify function:
+   
+   WP_API_URL = https://yoursite.com/webhook/drivehr-sync
+   WEBHOOK_SECRET = (same value as DRIVEHR_WEBHOOK_SECRET)
+
+5. TEST INSTALLATION
+   - Visit WordPress Admin > Tools > Site Health
+   - Look for "DriveHR Webhook Configuration" test
+   - Should show "Good" status if configured correctly
+
+WEBHOOK ENDPOINT
+===============
+Your webhook will be available at:
+https://yoursite.com/webhook/drivehr-sync
+
+ADMIN INTERFACE
+==============
+After installation, manage jobs at:
+WordPress Admin > DriveHR Jobs
+
+TROUBLESHOOTING
+==============
+If you see admin notices about missing configuration:
+1. Double-check wp-config.php constants
+2. Ensure webhook secret matches between WordPress and Netlify  
+3. Verify plugin is activated (if using regular plugin installation)
+4. Check WordPress error logs for detailed information
+
+SUPPORT
+=======
+GitHub: https://github.com/zachatkinson/drivehr-netlify-sync
+Documentation: See README.md file
+
+This plugin maintains perfect parity between DriveHR and WordPress by automatically:
+✓ Creating new jobs from DriveHR
+✓ Updating existing jobs  
+✓ Removing jobs no longer in DriveHR (NEW in v1.1.0!)
