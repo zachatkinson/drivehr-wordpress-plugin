@@ -119,11 +119,26 @@ class DriveHR_Post_Type {
             'delete_with_user' => false,
             'exclude_from_search' => false,
             'template' => [
-                ['core/heading', ['level' => 2, 'content' => __('Job Description', 'drivehr')]],
+                [
+					'core/heading',
+					[
+						'level' => 2,
+						'content' => __('Job Description', 'drivehr')
+					]],
                 ['core/paragraph', ['placeholder' => __('Enter job description...', 'drivehr')]],
-                ['core/heading', ['level' => 3, 'content' => __('Requirements', 'drivehr')]],
+                [
+					'core/heading',
+					[
+						'level' => 3,
+						'content' => __('Requirements', 'drivehr')
+					]],
                 ['core/list', ['placeholder' => __('List job requirements...', 'drivehr')]],
-                ['core/heading', ['level' => 3, 'content' => __('Benefits', 'drivehr')]],
+                [
+					'core/heading',
+					[
+						'level' => 3,
+						'content' => __('Benefits', 'drivehr')
+					]],
                 ['core/list', ['placeholder' => __('List job benefits...', 'drivehr')]],
             ],
             'template_lock' => false,

@@ -148,7 +148,7 @@ class DriveHR_Admin {
                     </th>
                     <td>
                         <input type="url" id="drivehr_apply_url" name="apply_url" value="<?php echo esc_attr($apply_url); ?>" class="large-text" />
-                        <?php if ($apply_url): ?>
+                        <?php if ($apply_url) : ?>
                             <p><a href="<?php echo esc_url($apply_url); ?>" target="_blank" class="button button-small"><?php _e('View Application Page', 'drivehr'); ?></a></p>
                         <?php endif; ?>
                     </td>
@@ -190,23 +190,23 @@ class DriveHR_Admin {
         <div class="drivehr-sync-info">
             <p><strong><?php _e('Source:', 'drivehr'); ?></strong> <?php echo esc_html($source ?: 'N/A'); ?></p>
             
-            <?php if ($source_url): ?>
+            <?php if ($source_url) : ?>
                 <p><strong><?php _e('Source URL:', 'drivehr'); ?></strong> 
                    <a href="<?php echo esc_url($source_url); ?>" target="_blank"><?php _e('View Original', 'drivehr'); ?></a>
                 </p>
             <?php endif; ?>
             
-            <?php if ($last_updated): ?>
+            <?php if ($last_updated) : ?>
                 <p><strong><?php _e('Last Synced:', 'drivehr'); ?></strong><br>
-                   <?php echo esc_html(date('M j, Y g:i A', strtotime($last_updated))); ?>
+                   <?php echo esc_html(wp_date('M j, Y g:i A', strtotime($last_updated))); ?>
                 </p>
             <?php endif; ?>
             
-            <?php if ($sync_version): ?>
+            <?php if ($sync_version) : ?>
                 <p><strong><?php _e('Sync Version:', 'drivehr'); ?></strong> <?php echo esc_html($sync_version); ?></p>
             <?php endif; ?>
             
-            <?php if ($raw_data && current_user_can('manage_options')): ?>
+            <?php if ($raw_data && current_user_can('manage_options')) : ?>
                 <details style="margin-top: 15px;">
                     <summary style="cursor: pointer; font-weight: bold;"><?php _e('Raw Data (Admin Only)', 'drivehr'); ?></summary>
                     <pre style="background: #f1f1f1; padding: 10px; font-size: 11px; overflow-x: auto; margin-top: 10px;"><?php echo esc_html(wp_json_encode(json_decode($raw_data), JSON_PRETTY_PRINT)); ?></pre>
@@ -251,8 +251,8 @@ class DriveHR_Admin {
         ];
         
         foreach ($meta_fields as $field) {
-            if (isset($_POST[$field])) {
-                $value = sanitize_text_field($_POST[$field]);
+            if (isset($_POST[ $field ])) {
+                $value = sanitize_text_field($_POST[ $field ]);
                 if ($field === 'apply_url') {
                     $value = esc_url_raw($value);
                 }
@@ -323,7 +323,7 @@ class DriveHR_Admin {
                 $last_updated = get_post_meta($post_id, 'last_updated', true);
                 if ($last_updated) {
                     $time_diff = human_time_diff(strtotime($last_updated));
-                    echo '<abbr title="' . esc_attr(date('M j, Y g:i A', strtotime($last_updated))) . '">';
+                    echo '<abbr title="' . esc_attr(wp_date('M j, Y g:i A', strtotime($last_updated))) . '">';
                     echo esc_html($time_diff . ' ago');
                     echo '</abbr>';
                 } else {

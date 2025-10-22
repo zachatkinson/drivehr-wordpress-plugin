@@ -213,8 +213,8 @@ class DriveHR_Webhook_Handler {
         ];
         
         foreach ($headers as $header) {
-            if (!empty($_SERVER[$header])) {
-                $ip = trim(explode(',', $_SERVER[$header])[0]);
+            if (!empty($_SERVER[ $header ])) {
+                $ip = trim(explode(',', $_SERVER[ $header ])[0]);
                 if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE)) {
                     return $ip;
                 }
@@ -338,7 +338,7 @@ class DriveHR_Webhook_Handler {
      * 
      * @param array $jobs Array of job data from webhook
      * @return array Processing results with counts and errors
-     * @throws Exception If critical processing error occurs
+     * @throws Exception If critical processing error occurs.
      */
     private function process_jobs(array $jobs): array {
         $processed = 0;
@@ -380,26 +380,77 @@ class DriveHR_Webhook_Handler {
     }
     
     /**
+     * Prepare sanitized post data from raw job data
+     *
+     * Extracts and sanitizes all job fields from the webhook payload,
+     * handling various field name formats for backward compatibility.
+     *
+     * @param array $job Raw job data from webhook payload
+     * @return array Sanitized post data ready for wp_insert_post/wp_update_post
+     * @since 1.1.4
+     */
+    private function prepare_job_post_data(array $job): array {
+        return [
+            'post_type' => 'drivehr_job',
+            'post_title' => sanitize_text_field($job['title']),
+            'post_content' => wp_kses_post($job['description'] ?? ''),
+            'post_excerpt' => sanitize_textarea_field($job['summary'] ?? ''),
+            'post_status' => 'publish',
+            'post_date' => $this->parse_date($job['postedDate'] ?? $job['posted_date'] ?? ''),
+            'meta_input' => $this->prepare_job_meta_data($job)
+        ];
+    }
+
+    /**
+     * Prepare sanitized meta data from raw job data
+     *
+     * Sanitizes all job metadata fields, handling backward compatibility
+     * for both camelCase and snake_case field naming conventions.
+     *
+     * @param array $job Raw job data from webhook payload
+     * @return array Sanitized meta data array
+     * @since 1.1.4
+     */
+    private function prepare_job_meta_data(array $job): array {
+        return [
+            'job_id' => sanitize_text_field($job['id']),
+            'department' => sanitize_text_field($job['department'] ?? ''),
+            'location' => sanitize_text_field($job['location'] ?? ''),
+            'job_type' => sanitize_text_field($job['type'] ?? $job['jobType'] ?? ''),
+            'employment_type' => sanitize_text_field($job['employmentType'] ?? ''),
+            'salary_range' => sanitize_text_field($job['salaryRange'] ?? $job['salary_range'] ?? ''),
+            'apply_url' => esc_url_raw($job['applyUrl'] ?? $job['apply_url'] ?? ''),
+            'posted_date' => sanitize_text_field($job['postedDate'] ?? $job['posted_date'] ?? ''),
+            'expiry_date' => sanitize_text_field($job['expiryDate'] ?? $job['expiry_date'] ?? ''),
+            'source' => 'drivehr',
+            'source_url' => esc_url_raw($job['sourceUrl'] ?? ''),
+            'raw_data' => wp_json_encode($job, JSON_UNESCAPED_UNICODE),
+            'last_updated' => current_time('mysql'),
+            'sync_version' => DRIVEHR_WEBHOOK_VERSION
+        ];
+    }
+
+    /**
      * Store or update a single job in WordPress
-     * 
+     *
      * Handles both new job creation and existing job updates with proper
      * data sanitization, duplicate detection, and transaction safety.
-     * 
+     *
      * @param array $job Job data from webhook payload
      * @return array Result with action taken and post ID
-     * @throws Exception If job storage fails
+     * @throws Exception If job storage fails.
      */
     private function store_job(array $job): array {
         // Validate required fields
         if (empty($job['id']) || empty($job['title'])) {
             throw new Exception('Missing required fields: id and title are required');
         }
-        
+
         global $wpdb;
-        
+
         // Start database transaction for atomicity
         $wpdb->query('START TRANSACTION');
-        
+
         try {
             // Check if job already exists
             $existing_posts = get_posts([
@@ -414,66 +465,43 @@ class DriveHR_Webhook_Handler {
                 'posts_per_page' => 1,
                 'fields' => 'ids'
             ]);
-            
+
             // Prepare sanitized job data
-            $post_data = [
-                'post_type' => 'drivehr_job',
-                'post_title' => sanitize_text_field($job['title']),
-                'post_content' => wp_kses_post($job['description'] ?? ''),
-                'post_excerpt' => sanitize_textarea_field($job['summary'] ?? ''),
-                'post_status' => 'publish',
-                'post_date' => $this->parse_date($job['postedDate'] ?? $job['posted_date'] ?? ''),
-                'meta_input' => [
-                    'job_id' => sanitize_text_field($job['id']),
-                    'department' => sanitize_text_field($job['department'] ?? ''),
-                    'location' => sanitize_text_field($job['location'] ?? ''),
-                    'job_type' => sanitize_text_field($job['type'] ?? $job['jobType'] ?? ''),
-                    'employment_type' => sanitize_text_field($job['employmentType'] ?? ''),
-                    'salary_range' => sanitize_text_field($job['salaryRange'] ?? $job['salary_range'] ?? ''),
-                    'apply_url' => esc_url_raw($job['applyUrl'] ?? $job['apply_url'] ?? ''),
-                    'posted_date' => sanitize_text_field($job['postedDate'] ?? $job['posted_date'] ?? ''),
-                    'expiry_date' => sanitize_text_field($job['expiryDate'] ?? $job['expiry_date'] ?? ''),
-                    'source' => 'drivehr',
-                    'source_url' => esc_url_raw($job['sourceUrl'] ?? ''),
-                    'raw_data' => wp_json_encode($job, JSON_UNESCAPED_UNICODE),
-                    'last_updated' => current_time('mysql'),
-                    'sync_version' => DRIVEHR_WEBHOOK_VERSION
-                ]
-            ];
-            
+            $post_data = $this->prepare_job_post_data($job);
+
             $action = 'created';
-            
+
             if (!empty($existing_posts)) {
                 // Fire before update action
                 do_action('drivehr_before_job_update', $job);
-                
+
                 // Update existing job
                 $post_data['ID'] = $existing_posts[0];
                 $result = wp_update_post($post_data, true);
                 $action = 'updated';
             } else {
-                // Fire before insert action  
+                // Fire before insert action
                 do_action('drivehr_before_job_insert', $job);
-                
+
                 // Create new job
                 $result = wp_insert_post($post_data, true);
                 $action = 'created';
             }
-            
+
             // Check for WordPress errors
             if (is_wp_error($result)) {
                 throw new Exception('WordPress error: ' . $result->get_error_message());
             }
-            
+
             // Commit transaction
             $wpdb->query('COMMIT');
-            
+
             return [
                 'action' => $action,
                 'post_id' => $result,
                 'job_id' => $job['id']
             ];
-            
+
         } catch (Exception $e) {
             // Rollback transaction on any error
             $wpdb->query('ROLLBACK');
@@ -490,7 +518,7 @@ class DriveHR_Webhook_Handler {
      * 
      * @param array $current_job_ids Array of job IDs currently in DriveHR
      * @return array Result with count of removed jobs
-     * @throws Exception If job removal fails
+     * @throws Exception If job removal fails.
      */
     private function remove_stale_jobs(array $current_job_ids): array {
         global $wpdb;
@@ -561,23 +589,26 @@ class DriveHR_Webhook_Handler {
     
     /**
      * Parse date string to WordPress format
-     * 
+     *
+     * Converts various date formats to WordPress-compatible MySQL datetime format.
+     * Uses gmdate() for timezone consistency as recommended by WordPress standards.
+     *
      * @param string $date_string Date in various formats
-     * @return string WordPress-compatible date string
+     * @return string WordPress-compatible date string in GMT
      */
     private function parse_date(string $date_string): string {
         if (empty($date_string)) {
-            return current_time('mysql');
+            return current_time('mysql', true);
         }
-        
+
         // Try to parse the date
         $timestamp = strtotime($date_string);
         if ($timestamp === false) {
             // If parsing fails, use current time
-            return current_time('mysql');
+            return current_time('mysql', true);
         }
-        
-        return date('Y-m-d H:i:s', $timestamp);
+
+        return gmdate('Y-m-d H:i:s', $timestamp);
     }
     
     /**
