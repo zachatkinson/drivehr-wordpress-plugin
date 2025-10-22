@@ -196,11 +196,11 @@ class DriveHR_Wordfence_Compatibility {
             <p><?php _e('Add webhook endpoint to login security bypasses if you experience authentication issues.', 'drivehr'); ?></p>
             
             <p>
-                <a href="<?php echo admin_url('admin.php?page=WordfenceWAF'); ?>" class="button button-primary">
-                    <?php _e('Configure Wordfence Now', 'drivehr'); ?>
+                <a href="<?php echo esc_url(admin_url('admin.php?page=WordfenceWAF')); ?>" class="button button-primary">
+                    <?php esc_html_e('Configure Wordfence Now', 'drivehr'); ?>
                 </a>
                 <a href="#" class="button" onclick="this.closest('.notice').style.display='none'">
-                    <?php _e('Dismiss', 'drivehr'); ?>
+                    <?php esc_html_e('Dismiss', 'drivehr'); ?>
                 </a>
             </p>
         </div>

@@ -53,6 +53,9 @@
         <exclude name="NormalizedArrays.Arrays.ArrayBraceSpacing"/>
         <exclude name="NormalizedArrays.Arrays.CommaAfterLast"/>
         <exclude name="Modernize.FunctionCalls.Dirname"/>
+        <exclude name="WordPress.Files.FileName.InvalidClassFileName"/>
+        <exclude name="Universal.Operators.DisallowShortTernary"/>
+        <exclude name="WordPress.Security.EscapeOutput.UnsafePrintingFunction"/>
     </rule>
 
     <!-- WordPress Documentation Standards -->

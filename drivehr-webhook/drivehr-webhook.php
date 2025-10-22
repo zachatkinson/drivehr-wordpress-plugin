@@ -179,9 +179,9 @@ add_action('admin_notices', function() {
     // Check for deactivation warning
     if (get_option('drivehr_deactivation_warning')) {
         echo '<div class="notice notice-warning is-dismissible">
-            <p><strong>⚠️ DriveHR Job Sync Warning:</strong> The DriveHR webhook plugin has been deactivated. 
-            Job synchronization from your Netlify function will not work until the plugin is reactivated. 
-            <a href="' . admin_url('plugins.php') . '">Reactivate now</a></p>
+            <p><strong>⚠️ DriveHR Job Sync Warning:</strong> The DriveHR webhook plugin has been deactivated.
+            Job synchronization from your Netlify function will not work until the plugin is reactivated.
+            <a href="' . esc_url(admin_url('plugins.php')) . '">Reactivate now</a></p>
         </div>';
         delete_option('drivehr_deactivation_warning');
     }
@@ -194,16 +194,14 @@ add_action('admin_notices', function() {
             <small>This secret must match the WEBHOOK_SECRET in your Netlify environment variables.</small><br>
             <small><strong>Wordfence Users:</strong> Add <code>/webhook/drivehr-sync</code> to Wordfence > All Options > Allowlisted URLs</small></p>
         </div>';
-    } else {
+    } elseif (get_transient('drivehr_show_success_notice')) {
         // Secret exists - show success notice on first activation only
-        if (get_transient('drivehr_show_success_notice')) {
-            echo '<div class="notice notice-success is-dismissible">
-                <p><strong>✅ DriveHR Webhook Configured!</strong> Your webhook secret is properly set. 
-                Endpoint available at: <code>/webhook/drivehr-sync</code><br>
-                <small><strong>Wordfence Users:</strong> Remember to allowlist <code>/webhook/drivehr-sync</code> in Wordfence > All Options > Allowlisted URLs</small></p>
-            </div>';
-            delete_transient('drivehr_show_success_notice');
-        }
+        echo '<div class="notice notice-success is-dismissible">
+            <p><strong>✅ DriveHR Webhook Configured!</strong> Your webhook secret is properly set.
+            Endpoint available at: <code>/webhook/drivehr-sync</code><br>
+            <small><strong>Wordfence Users:</strong> Remember to allowlist <code>/webhook/drivehr-sync</code> in Wordfence > All Options > Allowlisted URLs</small></p>
+        </div>';
+        delete_transient('drivehr_show_success_notice');
     }
     
     // Check if webhook is disabled
@@ -250,7 +248,7 @@ add_filter('plugin_row_meta', function($links, $file) {
  */
 add_filter('site_status_tests', function($tests) {
     $tests['direct']['drivehr_webhook_config'] = [
-        'label' => __('DriveHR Webhook Configuration'),
+        'label' => __('DriveHR Webhook Configuration', 'drivehr'),
         'test'  => 'drivehr_webhook_health_check'
     ];
     return $tests;
@@ -261,15 +259,15 @@ add_filter('site_status_tests', function($tests) {
  */
 function drivehr_webhook_health_check() {
     $result = [
-        'label'       => __('DriveHR Webhook Configuration'),
+        'label'       => __('DriveHR Webhook Configuration', 'drivehr'),
         'status'      => 'good',
         'badge'       => [
-            'label' => __('DriveHR'),
+            'label' => __('DriveHR', 'drivehr'),
             'color' => 'blue',
         ],
         'description' => sprintf(
             '<p>%s</p>',
-            __('Your DriveHR webhook is properly configured and ready to receive job data.')
+            __('Your DriveHR webhook is properly configured and ready to receive job data.', 'drivehr')
         ),
         'actions'     => '',
         'test'        => 'drivehr_webhook_config',

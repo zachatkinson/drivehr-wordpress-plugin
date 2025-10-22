@@ -334,7 +334,7 @@ class DriveHR_Admin {
             case 'drivehr_apply_url':
                 $apply_url = get_post_meta($post_id, 'apply_url', true);
                 if ($apply_url) {
-                    echo '<a href="' . esc_url($apply_url) . '" target="_blank" class="button button-small">' . __('Apply', 'drivehr') . '</a>';
+                    echo '<a href="' . esc_url($apply_url) . '" target="_blank" class="button button-small">' . esc_html__('Apply', 'drivehr') . '</a>';
                 } else {
                     echo '—';
                 }
