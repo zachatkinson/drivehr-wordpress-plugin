@@ -55,11 +55,43 @@ This repository contains only the WordPress plugin component. For the complete s
 3. Configure the webhook secret in `wp-config.php`
 4. Set up the Netlify function from the main repository
 
+### Code Quality & Linting
+
+This plugin enforces WordPress Coding Standards using PHP_CodeSniffer.
+
+**Install dependencies:**
+```bash
+cd drivehr-webhook
+php composer.phar install
+```
+
+**Available commands:**
+```bash
+# Check PHP syntax
+php composer.phar lint:php
+
+# Check WordPress Coding Standards
+php composer.phar lint
+
+# Auto-fix fixable issues
+php composer.phar lint:fix
+
+# Run all checks
+php composer.phar check
+```
+
+**Standards enforced:**
+- ✅ WordPress-Core coding standards
+- ✅ WordPress-Extra best practices
+- ✅ WordPress-Docs documentation requirements
+- ✅ PHP 7.4+ compatibility checks
+- ✅ Security standards (nonce, sanitization, escaping)
+
 ### Building for Release
 
 ```bash
 # Create a release-ready zip file
-zip -r drivehr-webhook.zip drivehr-webhook/ -x "*.git*" -x "*.DS_Store"
+zip -r drivehr-webhook.zip drivehr-webhook/ -x "*.git*" -x "*.DS_Store" -x "*vendor*" -x "*composer.*"
 ```
 
 ## 📄 License

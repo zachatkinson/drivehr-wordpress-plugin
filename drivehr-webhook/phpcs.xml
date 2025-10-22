@@ -1,0 +1,111 @@
+<?xml version="1.0"?>
+<ruleset name="DriveHR WordPress Plugin Coding Standards">
+    <description>Enterprise WordPress Coding Standards for DriveHR Plugin</description>
+
+    <!-- What to scan -->
+    <file>.</file>
+
+    <!-- Exclude patterns -->
+    <exclude-pattern>*/vendor/*</exclude-pattern>
+    <exclude-pattern>*/node_modules/*</exclude-pattern>
+    <exclude-pattern>*/.git/*</exclude-pattern>
+    <exclude-pattern>*/tests/*</exclude-pattern>
+
+    <!-- Show progress and sniff codes -->
+    <arg value="ps"/>
+
+    <!-- Use colors in output -->
+    <arg name="colors"/>
+
+    <!-- Show sniff codes in all reports -->
+    <arg value="ns"/>
+
+    <!-- Check up to 8 files simultaneously -->
+    <arg name="parallel" value="8"/>
+
+    <!-- WordPress Core Coding Standards -->
+    <rule ref="WordPress-Core">
+        <!-- Allow array short syntax -->
+        <exclude name="Generic.Arrays.DisallowShortArraySyntax"/>
+    </rule>
+
+    <!-- WordPress Extra Coding Standards (best practices) -->
+    <rule ref="WordPress-Extra">
+        <!-- Allow array short syntax -->
+        <exclude name="Generic.Arrays.DisallowShortArraySyntax"/>
+    </rule>
+
+    <!-- WordPress Documentation Standards -->
+    <rule ref="WordPress-Docs"/>
+
+    <!-- Check for PHP cross-version compatibility -->
+    <config name="testVersion" value="7.4-"/>
+    <rule ref="PHPCompatibility">
+        <!-- Exclude WordPress polyfills -->
+        <exclude name="PHPCompatibility.FunctionUse.NewFunctions.str_containsFound"/>
+    </rule>
+
+    <!-- Enforce short array syntax -->
+    <rule ref="Generic.Arrays.DisallowLongArraySyntax"/>
+
+    <!-- Set minimum supported WordPress version -->
+    <config name="minimum_supported_wp_version" value="5.0"/>
+
+    <!-- Allow for theme specific exceptions -->
+    <rule ref="WordPress.WP.I18n">
+        <properties>
+            <property name="text_domain" type="array">
+                <element value="drivehr"/>
+            </property>
+        </properties>
+    </rule>
+
+    <!-- Verify that everything in the global namespace is prefixed -->
+    <rule ref="WordPress.NamingConventions.PrefixAllGlobals">
+        <properties>
+            <property name="prefixes" type="array">
+                <element value="drivehr"/>
+                <element value="DriveHR"/>
+                <element value="DRIVEHR"/>
+            </property>
+        </properties>
+    </rule>
+
+    <!-- Security: Verify nonces -->
+    <rule ref="WordPress.Security.NonceVerification"/>
+
+    <!-- Security: Check for unsafe SQL queries -->
+    <rule ref="WordPress.DB.DirectDatabaseQuery"/>
+    <rule ref="WordPress.DB.PreparedSQL"/>
+    <rule ref="WordPress.DB.PreparedSQLPlaceholders"/>
+
+    <!-- Security: Validate and sanitize input -->
+    <rule ref="WordPress.Security.ValidatedSanitizedInput"/>
+
+    <!-- Security: Escape output -->
+    <rule ref="WordPress.Security.EscapeOutput"/>
+
+    <!-- Code complexity -->
+    <rule ref="Generic.Metrics.CyclomaticComplexity">
+        <properties>
+            <property name="complexity" value="10"/>
+            <property name="absoluteComplexity" value="20"/>
+        </properties>
+    </rule>
+
+    <rule ref="Generic.Metrics.NestingLevel">
+        <properties>
+            <property name="nestingLevel" value="5"/>
+            <property name="absoluteNestingLevel" value="10"/>
+        </properties>
+    </rule>
+
+    <!-- Use warnings for these (not errors) -->
+    <rule ref="WordPress.PHP.YodaConditions">
+        <type>warning</type>
+    </rule>
+
+    <rule ref="WordPress.WP.AlternativeFunctions">
+        <type>warning</type>
+    </rule>
+</ruleset>
