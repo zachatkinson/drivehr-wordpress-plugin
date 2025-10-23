@@ -51,6 +51,22 @@
 			"type": "string",
 			"default": "primary",
 			"enum": ["primary", "secondary", "outline"]
+		},
+		"style": {
+			"type": "object",
+			"default": {
+				"color": {
+					"background": "var(--global-palette7)"
+				},
+				"spacing": {
+					"padding": {
+						"top": "var(--global--spacing-unit-small)",
+						"right": "var(--global--spacing-unit-small)",
+						"bottom": "var(--global--spacing-unit-small)",
+						"left": "var(--global--spacing-unit-small)"
+					}
+				}
+			}
 		}
 	},
 	"example": {
