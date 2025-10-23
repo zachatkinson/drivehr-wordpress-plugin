@@ -16,17 +16,66 @@ if (!defined('ABSPATH')) {
 
 /**
  * DriveHR Post Type Class
- * 
+ *
  * Manages the drivehr_job custom post type registration and configuration.
+ *
+ * Uses singleton pattern to prevent duplicate hook registrations.
+ *
+ * @since 1.0.0
+ * @since 1.6.0 Implemented singleton pattern
  */
 class DriveHR_Post_Type {
-    
+
+    /**
+     * Single instance of the class
+     *
+     * @since 1.6.0
+     * @var DriveHR_Post_Type|null
+     */
+    private static $instance = null;
+
+    /**
+     * Get singleton instance
+     *
+     * @since 1.6.0
+     * @return DriveHR_Post_Type
+     */
+    public static function get_instance() {
+        if (null === self::$instance) {
+            self::$instance = new self();
+        }
+        return self::$instance;
+    }
+
     /**
      * Initialize the post type
+     *
+     * Private constructor prevents direct instantiation.
+     * Use DriveHR_Post_Type::get_instance() instead.
+     *
+     * @since 1.0.0
+     * @since 1.6.0 Changed to private constructor for singleton pattern
      */
-    public function __construct() {
+    private function __construct() {
         add_action('init', [$this, 'register_post_type']);
         add_action('init', [$this, 'register_taxonomies']);
+    }
+
+    /**
+     * Prevent cloning of the instance
+     *
+     * @since 1.6.0
+     */
+    private function __clone() {}
+
+    /**
+     * Prevent unserialization of the instance
+     *
+     * @since 1.6.0
+     * @throws Exception
+     */
+    public function __wakeup() {
+        throw new Exception('Cannot unserialize singleton');
     }
     
     /**
@@ -103,7 +152,7 @@ class DriveHR_Post_Type {
                 'editor',
                 'excerpt',
                 'custom-fields',
-                'revisions',
+                // 'revisions' removed in v1.4.0 - jobs are synced from external source and don't need revision history
                 'page-attributes',
                 'post-formats'
             ],

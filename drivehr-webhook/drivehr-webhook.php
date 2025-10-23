@@ -3,7 +3,7 @@
  * Plugin Name: DriveHR Job Sync Webhook Handler
  * Plugin URI: https://github.com/zachatkinson/drivehr-netlify-sync
  * Description: Enterprise-grade webhook handler for receiving job data from DriveHR Netlify function and storing it as WordPress custom posts. Maintains perfect parity between DriveHR and WordPress by automatically removing jobs that are no longer listed.
- * Version: 1.1.4
+ * Version: 1.6.0
  * Author: DriveHR Integration Team
  * Requires at least: 5.0
  * Requires PHP: 7.4
@@ -38,9 +38,9 @@
  * Alternative Installation (Must-Use Plugin):
  * 1. Upload this folder to /wp-content/mu-plugins/drivehr-webhook/
  * 2. Follow steps 3-4 above
- * 
+ *
  * @package DriveHR
- * @version 1.1.4
+ * @version 1.6.0
  * @since 2025-01-01
  */
 
@@ -50,7 +50,7 @@ if (!defined('ABSPATH')) {
 }
 
 // Define plugin constants
-define('DRIVEHR_WEBHOOK_VERSION', '1.1.4');
+define('DRIVEHR_WEBHOOK_VERSION', '1.6.0');
 define('DRIVEHR_WEBHOOK_PATH', __FILE__);
 define('DRIVEHR_WEBHOOK_DIR', dirname(__FILE__));
 define('DRIVEHR_WEBHOOK_URL', plugins_url('', __FILE__));
@@ -68,18 +68,38 @@ add_action('plugins_loaded', function() {
     require_once DRIVEHR_WEBHOOK_DIR . '/includes/class-post-type.php';
     require_once DRIVEHR_WEBHOOK_DIR . '/includes/class-admin.php';
     require_once DRIVEHR_WEBHOOK_DIR . '/includes/class-wordfence-compatibility.php';
-    
-    // Initialize components
-    new DriveHR_Post_Type();
-    new DriveHR_Admin();
-    new DriveHR_Webhook_Handler();
-    new DriveHR_Wordfence_Compatibility();
-    
+    require_once DRIVEHR_WEBHOOK_DIR . '/includes/class-job-block.php';
+    require_once DRIVEHR_WEBHOOK_DIR . '/includes/class-rest-api-cache.php';
+
+    // Initialize components using singleton pattern (v1.6.0+)
+    // This prevents duplicate hook registrations that caused 503 errors
+    DriveHR_Post_Type::get_instance();
+    DriveHR_Admin::get_instance();
+    DriveHR_Webhook_Handler::get_instance();
+    DriveHR_Wordfence_Compatibility::get_instance();
+    DriveHR_Job_Block::get_instance();
+    DriveHR_REST_API_Cache::get_instance();
+
     // Log plugin activation
     if (defined('WP_DEBUG') && WP_DEBUG) {
         error_log('[DriveHR Webhook] Plugin initialized v' . DRIVEHR_WEBHOOK_VERSION);
     }
 });
+
+/**
+ * Performance optimization: Disable post revisions for job posts
+ *
+ * Job posts are synced from external source and don't need revision history.
+ * This reduces database bloat and improves update performance.
+ *
+ * @since 1.2.0
+ */
+add_filter('wp_revisions_to_keep', function($num, $post) {
+    if ($post->post_type === 'drivehr_job') {
+        return 0;
+    }
+    return $num;
+}, 10, 2);
 
 /**
  * Plugin activation hook

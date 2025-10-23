@@ -18,47 +18,99 @@ if (!defined('ABSPATH')) {
 
 /**
  * DriveHR Webhook Handler Class
- * 
+ *
  * Handles incoming webhook requests from the DriveHR Netlify function with
  * enterprise-grade security and error handling.
+ *
+ * Uses singleton pattern to prevent duplicate hook registrations.
+ *
+ * @since 1.0.0
+ * @since 1.6.0 Implemented singleton pattern
  */
 class DriveHR_Webhook_Handler {
-    
+
+    /**
+     * Single instance of the class
+     *
+     * @since 1.6.0
+     * @var DriveHR_Webhook_Handler|null
+     */
+    private static $instance = null;
+
     /**
      * Webhook endpoint path - must match Netlify function configuration
      */
     private const WEBHOOK_PATH = '/webhook/drivehr-sync';
-    
+
     /**
      * Maximum jobs allowed per webhook request to prevent resource exhaustion
      */
     private const MAX_JOBS_PER_REQUEST = 100;
-    
+
     /**
      * Rate limit: maximum requests per minute per IP address
      */
     private const RATE_LIMIT_MAX_REQUESTS = 10;
-    
+
     /**
      * Rate limit time window in seconds
      */
     private const RATE_LIMIT_WINDOW = 60;
-    
+
     /**
      * Maximum timestamp difference (seconds) to prevent replay attacks
      */
     private const MAX_TIMESTAMP_DRIFT = 300; // 5 minutes
-    
+
+    /**
+     * Get singleton instance
+     *
+     * Ensures only one webhook handler exists per request,
+     * preventing duplicate hook registrations.
+     *
+     * @since 1.6.0
+     * @return DriveHR_Webhook_Handler
+     */
+    public static function get_instance() {
+        if (null === self::$instance) {
+            self::$instance = new self();
+        }
+        return self::$instance;
+    }
+
     /**
      * Initialize webhook handler
-     * 
+     *
+     * Private constructor prevents direct instantiation.
+     * Use DriveHR_Webhook_Handler::get_instance() instead.
+     *
      * Registers the webhook endpoint handler on WordPress init.
      * Only activates if webhook is enabled via configuration.
+     *
+     * @since 1.0.0
+     * @since 1.6.0 Changed to private constructor for singleton pattern
      */
-    public function __construct() {
+    private function __construct() {
         add_action('init', [$this, 'handle_webhook']);
     }
-    
+
+    /**
+     * Prevent cloning of the instance
+     *
+     * @since 1.6.0
+     */
+    private function __clone() {}
+
+    /**
+     * Prevent unserialization of the instance
+     *
+     * @since 1.6.0
+     * @throws Exception
+     */
+    public function __wakeup() {
+        throw new Exception('Cannot unserialize singleton');
+    }
+
     /**
      * Main webhook request handler
      * 
@@ -341,32 +393,63 @@ class DriveHR_Webhook_Handler {
      * @throws Exception If critical processing error occurs.
      */
     private function process_jobs(array $jobs): array {
+        global $wpdb;
+
         $processed = 0;
         $updated = 0;
         $skipped = 0;
         $errors = [];
-        
-        foreach ($jobs as $index => $job) {
-            if (!is_array($job)) {
-                $errors[] = "Job at index {$index}: Invalid job data format";
-                continue;
-            }
-            
-            try {
-                $result = $this->store_job($job);
-                if ($result['action'] === 'created') {
-                    $processed++;
-                } elseif ($result['action'] === 'updated') {
-                    $updated++;
-                } else {
-                    $skipped++;
+
+        // OPTIMIZATION 1: Increase PHP limits for large batches
+        @ini_set('memory_limit', '256M');
+        @ini_set('max_execution_time', '120');
+
+        // OPTIMIZATION 2: Bulk lookup existing jobs (single query instead of N queries)
+        $existing_jobs_map = $this->bulk_lookup_existing_jobs($jobs);
+
+        // OPTIMIZATION 3: Single batch transaction for all jobs
+        $wpdb->query('START TRANSACTION');
+
+        try {
+            foreach ($jobs as $index => $job) {
+                if (!is_array($job)) {
+                    $errors[] = "Job at index {$index}: Invalid job data format";
+                    continue;
                 }
-            } catch (Exception $e) {
-                $job_id = isset($job['id']) ? $job['id'] : 'unknown';
-                $errors[] = "Job '{$job_id}': " . $e->getMessage();
+
+                try {
+                    // Pass existing jobs map to avoid per-job queries
+                    $result = $this->store_job($job, $existing_jobs_map);
+                    if ($result['action'] === 'created') {
+                        $processed++;
+                    } elseif ($result['action'] === 'updated') {
+                        $updated++;
+                    } else {
+                        $skipped++;
+                    }
+                } catch (Exception $e) {
+                    $job_id = isset($job['id']) ? $job['id'] : 'unknown';
+                    $errors[] = "Job '{$job_id}': " . $e->getMessage();
+                }
             }
+
+            // Commit all changes as single transaction
+            $wpdb->query('COMMIT');
+
+            // OPTIMIZATION: Resource cleanup to prevent memory leaks
+            // This is critical for large batch operations (v1.6.0)
+            wp_reset_postdata(); // Clear global post data after wp_insert_post/wp_update_post
+            unset($existing_jobs_map, $jobs); // Free large arrays from memory
+            if (function_exists('gc_collect_cycles')) {
+                gc_collect_cycles(); // Force PHP garbage collection
+            }
+
+        } catch (Exception $e) {
+            // Rollback all changes on any critical error
+            $wpdb->query('ROLLBACK');
+            throw $e;
         }
-        
+
         return [
             'success' => true,
             'processed' => $processed,
@@ -377,6 +460,53 @@ class DriveHR_Webhook_Handler {
             'timestamp' => current_time('c'),
             'source' => 'drivehr-netlify-sync'
         ];
+    }
+
+    /**
+     * Bulk lookup existing jobs by job IDs
+     *
+     * PERFORMANCE OPTIMIZATION: Single database query to fetch all existing
+     * job post IDs instead of individual meta queries per job.
+     *
+     * @param array $jobs Array of job data
+     * @return array Map of job_id => post_id for existing jobs
+     * @since 1.2.0
+     */
+    private function bulk_lookup_existing_jobs(array $jobs): array {
+        global $wpdb;
+
+        // Extract all job IDs from incoming jobs
+        $job_ids = array_filter(array_map(function($job) {
+            return $job['id'] ?? null;
+        }, $jobs));
+
+        if (empty($job_ids)) {
+            return [];
+        }
+
+        // Build placeholders for prepared statement
+        $placeholders = implode(',', array_fill(0, count($job_ids), '%s'));
+
+        // Single query to fetch all existing job post IDs
+        $query = $wpdb->prepare("
+            SELECT pm.meta_value as job_id, pm.post_id
+            FROM {$wpdb->postmeta} pm
+            INNER JOIN {$wpdb->posts} p ON pm.post_id = p.ID
+            WHERE pm.meta_key = 'job_id'
+            AND pm.meta_value IN ($placeholders)
+            AND p.post_type = 'drivehr_job'
+            AND p.post_status != 'trash'
+        ", $job_ids);
+
+        $results = $wpdb->get_results($query);
+
+        // Build map of job_id => post_id
+        $map = [];
+        foreach ($results as $row) {
+            $map[$row->job_id] = (int)$row->post_id;
+        }
+
+        return $map;
     }
     
     /**
@@ -407,11 +537,18 @@ class DriveHR_Webhook_Handler {
      * Sanitizes all job metadata fields, handling backward compatibility
      * for both camelCase and snake_case field naming conventions.
      *
+     * PERFORMANCE OPTIMIZATION: Excludes description from raw_data to reduce
+     * database storage size (description is stored in post_content).
+     *
      * @param array $job Raw job data from webhook payload
      * @return array Sanitized meta data array
      * @since 1.1.4
      */
     private function prepare_job_meta_data(array $job): array {
+        // OPTIMIZATION: Exclude description from raw_data (stored in post_content already)
+        $job_meta_copy = $job;
+        unset($job_meta_copy['description']);
+
         return [
             'job_id' => sanitize_text_field($job['id']),
             'department' => sanitize_text_field($job['department'] ?? ''),
@@ -424,7 +561,7 @@ class DriveHR_Webhook_Handler {
             'expiry_date' => sanitize_text_field($job['expiryDate'] ?? $job['expiry_date'] ?? ''),
             'source' => 'drivehr',
             'source_url' => esc_url_raw($job['sourceUrl'] ?? ''),
-            'raw_data' => wp_json_encode($job, JSON_UNESCAPED_UNICODE),
+            'raw_data' => wp_json_encode($job_meta_copy, JSON_UNESCAPED_UNICODE),
             'last_updated' => current_time('mysql'),
             'sync_version' => DRIVEHR_WEBHOOK_VERSION
         ];
@@ -433,153 +570,131 @@ class DriveHR_Webhook_Handler {
     /**
      * Store or update a single job in WordPress
      *
-     * Handles both new job creation and existing job updates with proper
-     * data sanitization, duplicate detection, and transaction safety.
+     * PERFORMANCE OPTIMIZATION: Uses bulk lookup map to avoid per-job queries.
+     * Transactions are handled at batch level in process_jobs().
      *
      * @param array $job Job data from webhook payload
+     * @param array $existing_jobs_map Map of job_id => post_id from bulk lookup
      * @return array Result with action taken and post ID
      * @throws Exception If job storage fails.
      */
-    private function store_job(array $job): array {
+    private function store_job(array $job, array $existing_jobs_map = []): array {
         // Validate required fields
         if (empty($job['id']) || empty($job['title'])) {
             throw new Exception('Missing required fields: id and title are required');
         }
 
-        global $wpdb;
+        // OPTIMIZATION: Check existing job from bulk lookup map (no query needed)
+        $existing_post_id = $existing_jobs_map[$job['id']] ?? null;
 
-        // Start database transaction for atomicity
-        $wpdb->query('START TRANSACTION');
+        // Prepare sanitized job data
+        $post_data = $this->prepare_job_post_data($job);
 
-        try {
-            // Check if job already exists
-            $existing_posts = get_posts([
-                'post_type' => 'drivehr_job',
-                'meta_query' => [
-                    [
-                        'key' => 'job_id',
-                        'value' => sanitize_text_field($job['id']),
-                        'compare' => '='
-                    ]
-                ],
-                'posts_per_page' => 1,
-                'fields' => 'ids'
-            ]);
+        $action = 'created';
 
-            // Prepare sanitized job data
-            $post_data = $this->prepare_job_post_data($job);
+        if ($existing_post_id) {
+            // Fire before update action
+            do_action('drivehr_before_job_update', $job);
 
+            // Update existing job
+            $post_data['ID'] = $existing_post_id;
+            $result = wp_update_post($post_data, true);
+            $action = 'updated';
+        } else {
+            // Fire before insert action
+            do_action('drivehr_before_job_insert', $job);
+
+            // Create new job
+            $result = wp_insert_post($post_data, true);
             $action = 'created';
-
-            if (!empty($existing_posts)) {
-                // Fire before update action
-                do_action('drivehr_before_job_update', $job);
-
-                // Update existing job
-                $post_data['ID'] = $existing_posts[0];
-                $result = wp_update_post($post_data, true);
-                $action = 'updated';
-            } else {
-                // Fire before insert action
-                do_action('drivehr_before_job_insert', $job);
-
-                // Create new job
-                $result = wp_insert_post($post_data, true);
-                $action = 'created';
-            }
-
-            // Check for WordPress errors
-            if (is_wp_error($result)) {
-                throw new Exception('WordPress error: ' . $result->get_error_message());
-            }
-
-            // Commit transaction
-            $wpdb->query('COMMIT');
-
-            return [
-                'action' => $action,
-                'post_id' => $result,
-                'job_id' => $job['id']
-            ];
-
-        } catch (Exception $e) {
-            // Rollback transaction on any error
-            $wpdb->query('ROLLBACK');
-            throw $e;
         }
+
+        // Check for WordPress errors
+        if (is_wp_error($result)) {
+            throw new Exception('WordPress error: ' . $result->get_error_message());
+        }
+
+        return [
+            'action' => $action,
+            'post_id' => $result,
+            'job_id' => $job['id']
+        ];
     }
     
     /**
      * Remove stale jobs that are no longer in DriveHR
-     * 
+     *
      * Compares current job IDs from DriveHR with existing jobs in WordPress
      * and removes any jobs that are no longer present in the DriveHR feed.
      * This maintains perfect parity between DriveHR and WordPress job listings.
-     * 
+     *
+     * PERFORMANCE OPTIMIZATION (v1.6.0): Uses single bulk query instead of N+1
+     * pattern. For 100 jobs: 1 query vs 101 queries (90% reduction).
+     *
      * @param array $current_job_ids Array of job IDs currently in DriveHR
      * @return array Result with count of removed jobs
      * @throws Exception If job removal fails.
+     * @since 1.1.0
+     * @since 1.6.0 Optimized to eliminate N+1 query pattern
      */
     private function remove_stale_jobs(array $current_job_ids): array {
         global $wpdb;
-        
+
         // Start database transaction for atomicity
         $wpdb->query('START TRANSACTION');
-        
+
         try {
-            // Get all existing DriveHR jobs in WordPress
-            $existing_posts = get_posts([
-                'post_type' => 'drivehr_job',
-                'posts_per_page' => -1,
-                'fields' => 'ids',
-                'meta_query' => [
-                    [
-                        'key' => 'job_id',
-                        'compare' => 'EXISTS'
-                    ]
-                ]
-            ]);
-            
+            // OPTIMIZATION: Single query to get all existing jobs with their job_id meta
+            // Replaces N+1 query pattern (1 get_posts query + N get_post_meta calls)
+            $query = "
+                SELECT p.ID as post_id, pm.meta_value as job_id
+                FROM {$wpdb->posts} p
+                INNER JOIN {$wpdb->postmeta} pm ON p.ID = pm.post_id
+                WHERE p.post_type = 'drivehr_job'
+                AND p.post_status != 'trash'
+                AND pm.meta_key = 'job_id'
+            ";
+
+            $existing_jobs = $wpdb->get_results($query);
+
             $removed = 0;
             $removed_job_ids = [];
-            
-            foreach ($existing_posts as $post_id) {
-                $job_id = get_post_meta($post_id, 'job_id', true);
-                
+
+            foreach ($existing_jobs as $job) {
                 // If this job is not in the current DriveHR list, remove it
-                if (!in_array($job_id, $current_job_ids)) {
+                if (!in_array($job->job_id, $current_job_ids, true)) {
                     // Fire before delete action for integrations
-                    do_action('drivehr_before_job_delete', $post_id, $job_id);
-                    
+                    do_action('drivehr_before_job_delete', $job->post_id, $job->job_id);
+
                     // Permanently delete the job (bypass trash)
-                    $delete_result = wp_delete_post($post_id, true);
-                    
+                    $delete_result = wp_delete_post($job->post_id, true);
+
                     if ($delete_result) {
                         $removed++;
-                        $removed_job_ids[] = $job_id;
-                        
+                        $removed_job_ids[] = $job->job_id;
+
                         // Fire after delete action for integrations
-                        do_action('drivehr_after_job_delete', $post_id, $job_id);
+                        do_action('drivehr_after_job_delete', $job->post_id, $job->job_id);
                     }
                 }
             }
-            
+
             // Commit transaction
             $wpdb->query('COMMIT');
-            
+
             // Log removal activity
             if ($removed > 0) {
                 $this->log_webhook_activity(
-                    "Removed {$removed} stale jobs", 
+                    "Removed {$removed} stale jobs",
                     ['removed_job_ids' => $removed_job_ids]
                 );
             }
-            
+
             return [
                 'removed' => $removed,
                 'removed_job_ids' => $removed_job_ids
             ];
-            
+
         } catch (Exception $e) {
             // Rollback transaction on any error
             $wpdb->query('ROLLBACK');

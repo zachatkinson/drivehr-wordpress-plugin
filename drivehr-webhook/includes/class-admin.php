@@ -16,15 +16,47 @@ if (!defined('ABSPATH')) {
 
 /**
  * DriveHR Admin Class
- * 
+ *
  * Manages admin interface enhancements for DriveHR jobs.
+ *
+ * Uses singleton pattern to prevent duplicate hook registrations.
+ *
+ * @since 1.0.0
+ * @since 1.6.0 Implemented singleton pattern
  */
 class DriveHR_Admin {
-    
+
+    /**
+     * Single instance of the class
+     *
+     * @since 1.6.0
+     * @var DriveHR_Admin|null
+     */
+    private static $instance = null;
+
+    /**
+     * Get singleton instance
+     *
+     * @since 1.6.0
+     * @return DriveHR_Admin
+     */
+    public static function get_instance() {
+        if (null === self::$instance) {
+            self::$instance = new self();
+        }
+        return self::$instance;
+    }
+
     /**
      * Initialize admin functionality
+     *
+     * Private constructor prevents direct instantiation.
+     * Use DriveHR_Admin::get_instance() instead.
+     *
+     * @since 1.0.0
+     * @since 1.6.0 Changed to private constructor for singleton pattern
      */
-    public function __construct() {
+    private function __construct() {
         add_action('add_meta_boxes', [$this, 'add_meta_boxes']);
         add_action('save_post_drivehr_job', [$this, 'save_job_meta_data']);
         add_filter('manage_drivehr_job_posts_columns', [$this, 'add_custom_columns']);
@@ -34,7 +66,24 @@ class DriveHR_Admin {
         add_action('admin_enqueue_scripts', [$this, 'enqueue_admin_styles']);
         add_action('admin_head', [$this, 'add_admin_styles']);
     }
-    
+
+    /**
+     * Prevent cloning of the instance
+     *
+     * @since 1.6.0
+     */
+    private function __clone() {}
+
+    /**
+     * Prevent unserialization of the instance
+     *
+     * @since 1.6.0
+     * @throws Exception
+     */
+    public function __wakeup() {
+        throw new Exception('Cannot unserialize singleton');
+    }
+
     /**
      * Add custom meta boxes for job data in admin
      * 

@@ -16,26 +16,75 @@ if (!defined('ABSPATH')) {
 
 /**
  * DriveHR Wordfence Compatibility Class
- * 
+ *
  * Handles integration with Wordfence security plugin to prevent
  * false positive alerts during legitimate webhook operations.
+ *
+ * Uses singleton pattern to prevent duplicate hook registrations.
+ *
+ * @since 1.0.0
+ * @since 1.6.0 Implemented singleton pattern
  */
 class DriveHR_Wordfence_Compatibility {
-    
+
+    /**
+     * Single instance of the class
+     *
+     * @since 1.6.0
+     * @var DriveHR_Wordfence_Compatibility|null
+     */
+    private static $instance = null;
+
+    /**
+     * Get singleton instance
+     *
+     * @since 1.6.0
+     * @return DriveHR_Wordfence_Compatibility
+     */
+    public static function get_instance() {
+        if (null === self::$instance) {
+            self::$instance = new self();
+        }
+        return self::$instance;
+    }
+
     /**
      * Initialize Wordfence compatibility
+     *
+     * Private constructor prevents direct instantiation.
+     * Use DriveHR_Wordfence_Compatibility::get_instance() instead.
+     *
+     * @since 1.0.0
+     * @since 1.6.0 Changed to private constructor for singleton pattern
      */
-    public function __construct() {
+    private function __construct() {
         // Hook into Wordfence events if plugin is active
         if ($this->is_wordfence_active()) {
             add_action('init', [$this, 'setup_wordfence_integration'], 5);
             add_filter('wordfence_ls_require_auth', [$this, 'bypass_login_security_for_webhook'], 10, 2);
             add_filter('wordfence_api_request_filter', [$this, 'identify_webhook_requests'], 10, 3);
         }
-        
+
         // Add Wordfence-specific logging
         add_action('drivehr_webhook_start', [$this, 'log_webhook_start']);
         add_action('drivehr_webhook_end', [$this, 'log_webhook_end']);
+    }
+
+    /**
+     * Prevent cloning of the instance
+     *
+     * @since 1.6.0
+     */
+    private function __clone() {}
+
+    /**
+     * Prevent unserialization of the instance
+     *
+     * @since 1.6.0
+     * @throws Exception
+     */
+    public function __wakeup() {
+        throw new Exception('Cannot unserialize singleton');
     }
     
     /**
@@ -153,13 +202,24 @@ class DriveHR_Wordfence_Compatibility {
     }
     
     /**
-     * Check if current request is our webhook
-     * 
-     * @return bool True if this is a webhook request
+     * Check if current request is our webhook or REST API endpoint
+     *
+     * @return bool True if this is a webhook or REST API request
      */
     private function is_webhook_request(): bool {
         $request_uri = parse_url($_SERVER['REQUEST_URI'] ?? '', PHP_URL_PATH);
-        return $request_uri === '/webhook/drivehr-sync';
+
+        // Check for webhook endpoint
+        if ($request_uri === '/webhook/drivehr-sync') {
+            return true;
+        }
+
+        // Check for REST API endpoints
+        if (strpos($request_uri, '/wp-json/wp/v2/drivehr-jobs') !== false) {
+            return true;
+        }
+
+        return false;
     }
     
     /**
@@ -187,7 +247,8 @@ class DriveHR_Wordfence_Compatibility {
             <p><?php _e('To ensure DriveHR webhooks work properly with Wordfence, please add these configurations:', 'drivehr'); ?></p>
             
             <h4><?php _e('Wordfence > All Options > Allowlisted URLs:', 'drivehr'); ?></h4>
-            <code>/webhook/drivehr-sync</code>
+            <code>/webhook/drivehr-sync</code><br>
+            <code>/wp-json/wp/v2/drivehr-jobs</code>
             
             <h4><?php _e('Wordfence > All Options > Rate Limiting:', 'drivehr'); ?></h4>
             <p><?php _e('Add IP whitelist for your Netlify deployment, or create rate limiting exception for webhook endpoint.', 'drivehr'); ?></p>
@@ -233,7 +294,8 @@ class DriveHR_Wordfence_Compatibility {
     public function get_whitelist_recommendations(): array {
         return [
             'urls' => [
-                '/webhook/drivehr-sync'
+                '/webhook/drivehr-sync',
+                '/wp-json/wp/v2/drivehr-jobs'
             ],
             'ips' => [
                 '// Add your Netlify deployment IPs here',
@@ -246,6 +308,3 @@ class DriveHR_Wordfence_Compatibility {
         ];
     }
 }
-
-// Initialize Wordfence compatibility
-new DriveHR_Wordfence_Compatibility();
