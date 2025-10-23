@@ -3,7 +3,7 @@
  * Plugin Name: DriveHR Job Sync Webhook Handler
  * Plugin URI: https://github.com/zachatkinson/drivehr-netlify-sync
  * Description: Enterprise-grade webhook handler for receiving job data from DriveHR Netlify function and storing it as WordPress custom posts. Maintains perfect parity between DriveHR and WordPress by automatically removing jobs that are no longer listed.
- * Version: 1.6.3
+ * Version: 1.6.4
  * Author: DriveHR Integration Team
  * Requires at least: 5.0
  * Requires PHP: 7.4

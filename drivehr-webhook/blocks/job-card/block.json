@@ -55,15 +55,12 @@
 		"style": {
 			"type": "object",
 			"default": {
-				"color": {
-					"background": "var(--global-palette7)"
-				},
 				"spacing": {
 					"padding": {
-						"top": "var(--global--spacing-sm)",
-						"right": "var(--global--spacing-sm)",
-						"bottom": "var(--global--spacing-sm)",
-						"left": "var(--global--spacing-sm)"
+						"top": "var(--wp--preset--spacing--40)",
+						"right": "var(--wp--preset--spacing--40)",
+						"bottom": "var(--wp--preset--spacing--40)",
+						"left": "var(--wp--preset--spacing--40)"
 					}
 				}
 			}
