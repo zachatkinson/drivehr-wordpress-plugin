@@ -3,7 +3,7 @@
  * Plugin Name: DriveHR Job Sync Webhook Handler
  * Plugin URI: https://github.com/zachatkinson/drivehr-netlify-sync
  * Description: Enterprise-grade webhook handler for receiving job data from DriveHR Netlify function and storing it as WordPress custom posts. Maintains perfect parity between DriveHR and WordPress by automatically removing jobs that are no longer listed.
- * Version: 1.6.6
+ * Version: 1.7.2
  * Author: DriveHR Integration Team
  * Requires at least: 5.0
  * Requires PHP: 7.4
@@ -40,7 +40,7 @@
  * 2. Follow steps 3-4 above
  *
  * @package DriveHR
- * @version 1.6.6
+ * @version 1.7.2
  * @since 2025-01-01
  */
 
@@ -50,7 +50,7 @@ if (!defined('ABSPATH')) {
 }
 
 // Define plugin constants
-define('DRIVEHR_WEBHOOK_VERSION', '1.6.6');
+define('DRIVEHR_WEBHOOK_VERSION', '1.7.2');
 define('DRIVEHR_WEBHOOK_PATH', __FILE__);
 define('DRIVEHR_WEBHOOK_DIR', dirname(__FILE__));
 define('DRIVEHR_WEBHOOK_URL', plugins_url('', __FILE__));
@@ -63,13 +63,19 @@ define('DRIVEHR_WEBHOOK_URL', plugins_url('', __FILE__));
  * WordPress functions are available.
  */
 add_action('plugins_loaded', function() {
-    // Load the webhook handler
+    // Load core components
     require_once DRIVEHR_WEBHOOK_DIR . '/includes/class-webhook-handler.php';
     require_once DRIVEHR_WEBHOOK_DIR . '/includes/class-post-type.php';
     require_once DRIVEHR_WEBHOOK_DIR . '/includes/class-admin.php';
     require_once DRIVEHR_WEBHOOK_DIR . '/includes/class-wordfence-compatibility.php';
-    require_once DRIVEHR_WEBHOOK_DIR . '/includes/class-job-block.php';
     require_once DRIVEHR_WEBHOOK_DIR . '/includes/class-rest-api-cache.php';
+
+    // Load shared rendering trait (v1.7.0+) before block classes
+    require_once DRIVEHR_WEBHOOK_DIR . '/includes/trait-job-card-renderer.php';
+
+    // Load Gutenberg blocks
+    require_once DRIVEHR_WEBHOOK_DIR . '/includes/class-job-block.php';
+    require_once DRIVEHR_WEBHOOK_DIR . '/includes/class-job-list-block.php';
 
     // Initialize components using singleton pattern (v1.6.0+)
     // This prevents duplicate hook registrations that caused 503 errors
@@ -77,8 +83,11 @@ add_action('plugins_loaded', function() {
     DriveHR_Admin::get_instance();
     DriveHR_Webhook_Handler::get_instance();
     DriveHR_Wordfence_Compatibility::get_instance();
-    DriveHR_Job_Block::get_instance();
     DriveHR_REST_API_Cache::get_instance();
+
+    // Initialize Gutenberg blocks (v1.7.0+)
+    DriveHR_Job_Block::get_instance();
+    DriveHR_Job_List_Block::get_instance();
 
     // Log plugin activation
     if (defined('WP_DEBUG') && WP_DEBUG) {

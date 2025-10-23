@@ -1,0 +1,80 @@
+{
+	"$schema": "https://schemas.wp.org/trunk/block.json",
+	"apiVersion": 3,
+	"name": "drivehr/job-list",
+	"version": "1.0.0",
+	"title": "DriveHR Job List",
+	"category": "widgets",
+	"icon": "list-view",
+	"description": "Display all available job postings in a modern, accessible list format.",
+	"keywords": ["jobs", "careers", "employment", "hiring", "drivehr", "list"],
+	"textdomain": "drivehr-webhook",
+	"supports": {
+		"html": false,
+		"align": ["wide", "full"],
+		"spacing": {
+			"margin": true,
+			"padding": true
+		},
+		"color": {
+			"background": true,
+			"text": true,
+			"link": true
+		},
+		"typography": {
+			"fontSize": true,
+			"lineHeight": true
+		}
+	},
+	"attributes": {
+		"showLocation": {
+			"type": "boolean",
+			"default": true
+		},
+		"showJobType": {
+			"type": "boolean",
+			"default": true
+		},
+		"postsPerPage": {
+			"type": "number",
+			"default": -1
+		},
+		"orderBy": {
+			"type": "string",
+			"default": "date",
+			"enum": ["date", "title", "modified"]
+		},
+		"order": {
+			"type": "string",
+			"default": "DESC",
+			"enum": ["ASC", "DESC"]
+		},
+		"backgroundColor": {
+			"type": "string",
+			"default": "theme-palette7"
+		},
+		"style": {
+			"type": "object",
+			"default": {
+				"spacing": {
+					"padding": {
+						"top": "var(--wp--preset--spacing--30)",
+						"right": "var(--wp--preset--spacing--30)",
+						"bottom": "var(--wp--preset--spacing--30)",
+						"left": "var(--wp--preset--spacing--30)"
+					}
+				}
+			}
+		}
+	},
+	"example": {
+		"attributes": {
+			"showLocation": true,
+			"showJobType": true,
+			"postsPerPage": 3
+		}
+	},
+	"editorScript": "file:./build/index.js",
+	"editorStyle": "file:./editor.css",
+	"style": "file:./style.css"
+}

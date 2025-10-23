@@ -1,0 +1,31 @@
+{
+	"name": "drivehr-webhook",
+	"version": "1.7.2",
+	"description": "DriveHR Job Sync Webhook Handler with Gutenberg Blocks",
+	"author": "DriveHR Integration Team",
+	"license": "MIT",
+	"scripts": {
+		"build": "wp-scripts build blocks/job-card/index.js --output-path=blocks/job-card/build && wp-scripts build blocks/job-list/index.js --output-path=blocks/job-list/build",
+		"build:job-card": "wp-scripts build blocks/job-card/index.js --output-path=blocks/job-card/build",
+		"build:job-list": "wp-scripts build blocks/job-list/index.js --output-path=blocks/job-list/build",
+		"start": "wp-scripts start blocks/job-card/index.js --output-path=blocks/job-card/build",
+		"start:job-list": "wp-scripts start blocks/job-list/index.js --output-path=blocks/job-list/build",
+		"format": "wp-scripts format",
+		"lint:js": "wp-scripts lint-js",
+		"packages-update": "wp-scripts packages-update"
+	},
+	"devDependencies": {
+		"@wordpress/scripts": "^27.0.0"
+	},
+	"dependencies": {
+		"@wordpress/api-fetch": "^7.0.0",
+		"@wordpress/block-editor": "^13.0.0",
+		"@wordpress/blocks": "^13.0.0",
+		"@wordpress/components": "^28.0.0",
+		"@wordpress/data": "^10.0.0",
+		"@wordpress/element": "^6.0.0",
+		"@wordpress/i18n": "^5.0.0",
+		"@wordpress/icons": "^10.0.0",
+		"@wordpress/server-side-render": "^5.0.0"
+	}
+}

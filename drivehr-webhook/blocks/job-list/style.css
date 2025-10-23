@@ -1,0 +1,44 @@
+/**
+ * Job List Block - Frontend & Editor Styles
+ *
+ * Styles for the job list block container. Individual job cards
+ * use the shared drivehr-job-card styles from the job-card block.
+ *
+ * @since 1.7.0
+ */
+
+.drivehr-job-list {
+	display: flex;
+	flex-direction: column;
+	gap: var(--wp--preset--spacing--40, 1.5rem);
+}
+
+.drivehr-job-list__empty {
+	padding: var(--wp--preset--spacing--50, 2rem);
+	text-align: center;
+	color: var(--wp--preset--color--contrast, #666);
+}
+
+.drivehr-job-list__empty-icon {
+	width: 48px;
+	height: 48px;
+	margin: 0 auto var(--wp--preset--spacing--30, 1rem);
+	opacity: 0.5;
+}
+
+.drivehr-job-list__empty-text {
+	margin: 0;
+	font-size: var(--wp--preset--font-size--medium, 1rem);
+}
+
+/* Job card spacing within list */
+.drivehr-job-list .drivehr-job-card {
+	margin-bottom: 0;
+}
+
+/* Responsive spacing adjustments */
+@media (max-width: 768px) {
+	.drivehr-job-list {
+		gap: var(--wp--preset--spacing--30, 1rem);
+	}
+}

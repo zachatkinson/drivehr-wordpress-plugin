@@ -1,0 +1,18 @@
+/**
+ * Job List Block - Editor-Only Styles
+ *
+ * Additional styles that only apply in the block editor.
+ *
+ * @since 1.7.0
+ */
+
+.editor-styles-wrapper .drivehr-job-list {
+	/* Ensure proper spacing in editor */
+	min-height: 100px;
+}
+
+.editor-styles-wrapper .drivehr-job-list__empty {
+	/* Make empty state more visible in editor */
+	border: 2px dashed var(--wp--preset--color--contrast-2, #ccc);
+	border-radius: 4px;
+}
