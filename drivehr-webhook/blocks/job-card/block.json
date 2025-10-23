@@ -1,0 +1,67 @@
+{
+	"$schema": "https://schemas.wp.org/trunk/block.json",
+	"apiVersion": 3,
+	"name": "drivehr/job-card",
+	"version": "1.0.0",
+	"title": "DriveHR Job Card",
+	"category": "widgets",
+	"icon": "businessman",
+	"description": "Display a single job posting in a modern, accessible card format.",
+	"keywords": ["job", "career", "employment", "hiring", "drivehr"],
+	"textdomain": "drivehr-webhook",
+	"supports": {
+		"html": false,
+		"align": ["wide", "full"],
+		"spacing": {
+			"margin": true,
+			"padding": true
+		},
+		"color": {
+			"background": true,
+			"text": true,
+			"link": true
+		},
+		"typography": {
+			"fontSize": true,
+			"lineHeight": true
+		}
+	},
+	"attributes": {
+		"jobId": {
+			"type": "number",
+			"default": 0
+		},
+		"showExcerpt": {
+			"type": "boolean",
+			"default": true
+		},
+		"showLocation": {
+			"type": "boolean",
+			"default": true
+		},
+		"showJobType": {
+			"type": "boolean",
+			"default": true
+		},
+		"buttonText": {
+			"type": "string",
+			"default": "Apply Now"
+		},
+		"buttonStyle": {
+			"type": "string",
+			"default": "primary",
+			"enum": ["primary", "secondary", "outline"]
+		}
+	},
+	"example": {
+		"attributes": {
+			"jobId": 0,
+			"showExcerpt": true,
+			"showLocation": true,
+			"showJobType": true
+		}
+	},
+	"editorScript": "file:./build/index.js",
+	"editorStyle": "file:./editor.css",
+	"style": "file:./style.css"
+}

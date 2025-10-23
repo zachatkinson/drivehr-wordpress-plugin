@@ -1,0 +1,353 @@
+/**
+ * DriveHR Job Card Block Styles
+ *
+ * Minimal custom styling - lets Kadence theme handle most design.
+ * Only includes essential layout and accessibility styles.
+ *
+ * @package DriveHR_Webhook
+ * @since 1.2.3
+ */
+
+/* ========================================================================
+   Minimal Layout - Let Theme Handle Design
+   ======================================================================== */
+
+.drivehr-job-card {
+	/* Let theme handle background, borders, shadows */
+	display: block;
+	overflow: hidden;
+}
+
+.drivehr-job-card__content {
+	/* Let theme handle padding */
+}
+
+.drivehr-job-card__header {
+	/* Let theme handle spacing */
+}
+
+.drivehr-job-card__title {
+	/* Let theme handle typography */
+}
+
+.drivehr-job-card__meta {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.5rem;
+}
+
+.drivehr-job-card__location,
+.drivehr-job-card__type {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.25rem;
+}
+
+.drivehr-job-card__icon {
+	width: 1rem;
+	height: 1rem;
+	flex-shrink: 0;
+}
+
+.drivehr-job-card__excerpt {
+	/* Let theme handle text styling */
+}
+
+.drivehr-job-card__footer {
+	/* Let theme handle spacing and borders */
+}
+
+.drivehr-job-card__button {
+	/* Let theme handle button styling */
+	display: inline-flex;
+	align-items: center;
+	gap: 0.5rem;
+	text-decoration: none;
+}
+
+.drivehr-job-card__button-icon {
+	width: 1.25rem;
+	height: 1.25rem;
+	flex-shrink: 0;
+}
+
+/* ========================================================================
+   Accessibility - Screen Reader Text
+   ======================================================================== */
+
+.screen-reader-text {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	padding: 0;
+	margin: -1px;
+	overflow: hidden;
+	clip: rect(0, 0, 0, 0);
+	white-space: nowrap;
+	border-width: 0;
+}
+
+.screen-reader-text:focus {
+	position: static;
+	width: auto;
+	height: auto;
+	margin: 0;
+	overflow: visible;
+	clip: auto;
+	white-space: normal;
+}
+
+/* ========================================================================
+   Placeholder States
+   ======================================================================== */
+
+.drivehr-job-card--placeholder,
+.drivehr-job-card--not-found {
+	background: #f9fafb;
+	border-style: dashed;
+	border-color: #d1d5db;
+}
+
+.drivehr-job-card__placeholder-text,
+.drivehr-job-card__error-text {
+	display: flex;
+	align-items: center;
+	gap: 0.75rem;
+	margin: 0;
+	padding: 1.5rem;
+	font-size: 0.875rem;
+	color: #6b7280;
+	text-align: center;
+	justify-content: center;
+}
+
+.drivehr-job-card__placeholder-icon,
+.drivehr-job-card__error-icon {
+	width: 2rem;
+	height: 2rem;
+	flex-shrink: 0;
+	color: #9ca3af;
+}
+
+/* ========================================================================
+   Learn More Accordion
+   ======================================================================== */
+
+.drivehr-job-card__learn-more {
+	margin-top: 1rem;
+}
+
+.drivehr-job-card__learn-more-toggle {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.5rem;
+	padding: 0.5rem 0;
+	background: transparent;
+	border: none;
+	color: inherit;
+	font-size: inherit;
+	cursor: pointer;
+	transition: opacity 0.2s;
+}
+
+.drivehr-job-card__learn-more-toggle:hover {
+	opacity: 0.7;
+}
+
+.drivehr-job-card__toggle-icon {
+	width: 1.25rem;
+	height: 1.25rem;
+	transition: transform 0.2s ease-in-out;
+}
+
+.drivehr-job-card__details {
+	margin-top: 0.75rem;
+	padding-top: 0.75rem;
+	border-top: 1px solid #e5e7eb;
+}
+
+.drivehr-job-card__details[hidden] {
+	display: none;
+}
+
+/* ========================================================================
+   Apply Now Modal
+   ======================================================================== */
+
+.drivehr-modal {
+	position: fixed;
+	top: 0;
+	left: 0;
+	right: 0;
+	bottom: 0;
+	z-index: 999999;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	animation: drivehr-modal-fade-in 0.2s ease-out;
+}
+
+.drivehr-modal--closing {
+	animation: drivehr-modal-fade-out 0.2s ease-in;
+}
+
+.drivehr-modal__overlay {
+	position: absolute;
+	top: 0;
+	left: 0;
+	right: 0;
+	bottom: 0;
+	background: rgba(0, 0, 0, 0.75);
+	cursor: pointer;
+}
+
+.drivehr-modal__container {
+	position: relative;
+	z-index: 1;
+	width: 90%;
+	max-width: 800px;
+	max-height: 90vh;
+	background: #ffffff;
+	border-radius: 8px;
+	box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+	display: flex;
+	flex-direction: column;
+}
+
+.drivehr-modal__header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	padding: 1.5rem;
+	border-bottom: 1px solid #e5e7eb;
+}
+
+.drivehr-modal__title {
+	margin: 0;
+	font-size: 1.25rem;
+	font-weight: 600;
+}
+
+.drivehr-modal__close {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 2rem;
+	height: 2rem;
+	padding: 0;
+	background: transparent;
+	border: none;
+	border-radius: 4px;
+	cursor: pointer;
+	transition: background-color 0.2s;
+}
+
+.drivehr-modal__close:hover {
+	background-color: #f3f4f6;
+}
+
+.drivehr-modal__close svg {
+	width: 1.5rem;
+	height: 1.5rem;
+}
+
+.drivehr-modal__body {
+	flex: 1;
+	overflow: hidden;
+	position: relative;
+}
+
+.drivehr-modal__iframe {
+	width: 100%;
+	height: 100%;
+	min-height: 500px;
+	border: none;
+}
+
+@keyframes drivehr-modal-fade-in {
+	from {
+		opacity: 0;
+	}
+	to {
+		opacity: 1;
+	}
+}
+
+@keyframes drivehr-modal-fade-out {
+	from {
+		opacity: 1;
+	}
+	to {
+		opacity: 0;
+	}
+}
+
+/* ========================================================================
+   Pay Type Styling
+   ======================================================================== */
+
+.drivehr-job-card__pay-type {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.25rem;
+}
+
+/* ========================================================================
+   Responsive Modal
+   ======================================================================== */
+
+@media (max-width: 640px) {
+	.drivehr-modal__container {
+		width: 95%;
+		max-height: 95vh;
+	}
+
+	.drivehr-modal__header {
+		padding: 1rem;
+	}
+
+	.drivehr-modal__title {
+		font-size: 1.125rem;
+	}
+
+	.drivehr-modal__iframe {
+		min-height: 400px;
+	}
+}
+
+/* ========================================================================
+   Dark Mode Support - DISABLED to match light Kadence theme
+   ======================================================================== */
+
+/* Dark mode removed - site uses light theme only */
+
+/* ========================================================================
+   Responsive Design
+   ======================================================================== */
+
+@media (max-width: 640px) {
+	.drivehr-job-card__meta {
+		flex-direction: column;
+		gap: 0.5rem;
+	}
+
+	.drivehr-job-card__button {
+		width: 100%;
+	}
+}
+
+/* ========================================================================
+   Print Styles
+   ======================================================================== */
+
+@media print {
+	.drivehr-job-card {
+		border: 1px solid #000;
+		box-shadow: none;
+		page-break-inside: avoid;
+	}
+
+	.drivehr-job-card__button {
+		display: none;
+	}
+}

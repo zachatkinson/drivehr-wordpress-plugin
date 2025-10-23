@@ -1,0 +1,101 @@
+/**
+ * DriveHR Job Card Block - Editor Styles
+ *
+ * Styles specific to the WordPress block editor.
+ *
+ * @package DriveHR_Webhook
+ * @since 1.0.0
+ */
+
+/* ========================================================================
+   Editor Container
+   ======================================================================== */
+
+.drivehr-job-card-editor {
+	margin: 1rem 0;
+}
+
+/* ========================================================================
+   Block Inspector Controls
+   ======================================================================== */
+
+.drivehr-button-style-control {
+	margin-bottom: 1.5rem;
+}
+
+.drivehr-button-style-control .components-base-control__label {
+	display: block;
+	margin-bottom: 0.5rem;
+	font-size: 11px;
+	font-weight: 500;
+	line-height: 1.4;
+	text-transform: uppercase;
+	color: #1e1e1e;
+}
+
+.drivehr-button-style-control .components-button-group {
+	display: flex;
+	width: 100%;
+}
+
+.drivehr-button-style-control .components-button {
+	flex: 1;
+	justify-content: center;
+}
+
+/* ========================================================================
+   Placeholder Styles in Editor
+   ======================================================================== */
+
+.drivehr-job-card-placeholder__no-jobs {
+	margin: 1rem 0 0 0;
+	padding: 0.75rem 1rem;
+	background: #fef3c7;
+	border: 1px solid #fbbf24;
+	border-radius: 4px;
+	font-size: 0.875rem;
+	color: #92400e;
+}
+
+/* ========================================================================
+   Editor Preview - Let Theme Styles Apply
+   ======================================================================== */
+
+/* Ensure job card inherits theme styles in editor */
+.editor-styles-wrapper .drivehr-job-card {
+	/* Let Kadence theme styles apply */
+	max-width: 100%;
+}
+
+/* Block spacing in editor */
+.wp-block-drivehr-job-card {
+	/* Let theme handle spacing */
+}
+
+/* ========================================================================
+   Loading State
+   ======================================================================== */
+
+.drivehr-job-card-editor .components-placeholder {
+	min-height: 200px;
+}
+
+.drivehr-job-card-editor .components-spinner {
+	margin: 0 auto;
+}
+
+/* ========================================================================
+   Block Toolbar
+   ======================================================================== */
+
+.wp-block-drivehr-job-card .block-editor-block-toolbar {
+	position: sticky;
+	top: 0;
+	z-index: 1;
+}
+
+/* ========================================================================
+   Dark Mode Support - DISABLED to match light Kadence theme
+   ======================================================================== */
+
+/* Dark mode removed - editor matches light frontend theme */
