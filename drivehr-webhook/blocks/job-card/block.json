@@ -60,10 +60,10 @@
 				},
 				"spacing": {
 					"padding": {
-						"top": "var(--global--spacing-unit-small)",
-						"right": "var(--global--spacing-unit-small)",
-						"bottom": "var(--global--spacing-unit-small)",
-						"left": "var(--global--spacing-unit-small)"
+						"top": "var(--global--spacing-sm)",
+						"right": "var(--global--spacing-sm)",
+						"bottom": "var(--global--spacing-sm)",
+						"left": "var(--global--spacing-sm)"
 					}
 				}
 			}
