@@ -52,6 +52,10 @@
 			"default": "primary",
 			"enum": ["primary", "secondary", "outline"]
 		},
+		"backgroundColor": {
+			"type": "string",
+			"default": "theme-palette7"
+		},
 		"style": {
 			"type": "object",
 			"default": {
