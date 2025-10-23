@@ -189,10 +189,13 @@ class DriveHR_Job_Block {
 	 * Server-side rendering of the block
 	 *
 	 * @since 1.0.0
+	 * @since 1.6.2 Added block wrapper attributes for style support
 	 * @param array $attributes Block attributes from the editor.
+	 * @param string $content Block content (unused for server-side rendered blocks).
+	 * @param WP_Block $block Block instance.
 	 * @return string Rendered HTML output
 	 */
-	public function render_block( array $attributes ): string {
+	public function render_block( array $attributes, string $content = '', $block = null ): string {
 		$job_id = isset( $attributes['jobId'] ) ? absint( $attributes['jobId'] ) : 0;
 
 		if ( ! $job_id ) {
@@ -220,14 +223,21 @@ class DriveHR_Job_Block {
 		$button_text  = isset( $attributes['buttonText'] ) ? sanitize_text_field( $attributes['buttonText'] ) : 'Apply Now';
 		$button_style = isset( $attributes['buttonStyle'] ) ? sanitize_text_field( $attributes['buttonStyle'] ) : 'primary';
 
+		// Generate block wrapper attributes (applies background, padding, etc. from block settings).
+		$wrapper_attributes = get_block_wrapper_attributes(
+			array(
+				'class'                => 'drivehr-job-card',
+				'data-job-id'          => esc_attr( $job_id ),
+				'data-external-id'     => esc_attr( $external_id ),
+				'itemscope'            => true,
+				'itemtype'             => 'https://schema.org/JobPosting',
+			)
+		);
+
 		// Start output buffering.
 		ob_start();
 		?>
-		<article class="drivehr-job-card"
-				 data-job-id="<?php echo esc_attr( $job_id ); ?>"
-				 data-external-id="<?php echo esc_attr( $external_id ); ?>"
-				 itemscope
-				 itemtype="https://schema.org/JobPosting">
+		<article <?php echo $wrapper_attributes; ?>>
 
 			<div class="drivehr-job-card__content">
 				<header class="drivehr-job-card__header">
