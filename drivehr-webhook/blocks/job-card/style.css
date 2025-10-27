@@ -22,8 +22,17 @@
 	/* Let theme handle padding */
 }
 
+.drivehr-job-card__header-wrapper {
+	display: flex;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: 1rem;
+	flex-direction: column; /* Stack vertically on mobile */
+}
+
 .drivehr-job-card__header {
-	/* Let theme handle spacing */
+	flex: 1;
+	min-width: 0; /* Allows flex item to shrink below content size */
 }
 
 .drivehr-job-card__title {
@@ -130,39 +139,84 @@
 }
 
 /* ========================================================================
-   Learn More Accordion
+   Action Buttons (Mobile: 50/50 Split, Tablet+: Auto Width on Right)
    ======================================================================== */
 
-.drivehr-job-card__learn-more {
-	margin-top: 1rem;
+.drivehr-job-card__actions {
+	display: flex;
+	align-items: stretch;
+	justify-content: space-between;
+	gap: 0.75rem;
+	flex-direction: row; /* Side-by-side on mobile */
+	width: 100%; /* Full width on mobile */
 }
 
-.drivehr-job-card__learn-more-toggle {
-	display: inline-flex;
+.drivehr-job-card__button {
+	display: flex;
 	align-items: center;
+	justify-content: center;
 	gap: 0.5rem;
-	padding: 0.5rem 0;
+	padding: 0.75rem 1rem;
 	background: transparent;
-	border: none;
+	border: 2px solid currentColor;
+	border-radius: 4px;
 	color: inherit;
-	font-size: inherit;
+	font-size: 0.875rem;
+	font-weight: 500;
 	cursor: pointer;
-	transition: opacity 0.2s;
+	text-decoration: none;
+	transition: all 0.2s ease;
+	flex: 1; /* Equal width 50/50 on mobile */
 }
 
-.drivehr-job-card__learn-more-toggle:hover {
-	opacity: 0.7;
+.drivehr-job-card__button:hover {
+	opacity: 0.8;
+	transform: translateY(-1px);
 }
 
-.drivehr-job-card__toggle-icon {
+.drivehr-job-card__button:active {
+	transform: translateY(0);
+}
+
+/* Apply Button - Primary Style */
+.drivehr-job-card__button--apply {
+	background: var(--wp--preset--color--primary, #0073aa);
+	border-color: var(--wp--preset--color--primary, #0073aa);
+	color: #ffffff;
+}
+
+.drivehr-job-card__button--apply:hover {
+	background: var(--wp--preset--color--primary-hover, #005177);
+	border-color: var(--wp--preset--color--primary-hover, #005177);
+}
+
+/* Learn More Button - Secondary Style */
+.drivehr-job-card__button--learn-more {
+	background: transparent;
+	border-color: currentColor;
+}
+
+/* SVG Icons in Buttons */
+.drivehr-job-card__button .drivehr-job-card__icon {
 	width: 1.25rem;
 	height: 1.25rem;
-	transition: transform 0.2s ease-in-out;
+	flex-shrink: 0;
 }
 
+/* Chevron Rotation Animation */
+.drivehr-job-card__icon--chevron {
+	transform: rotate(90deg); /* Point down by default */
+	transition: transform 0.3s ease-in-out;
+}
+
+.drivehr-job-card__button--learn-more[aria-expanded="true"] .drivehr-job-card__icon--chevron {
+	transform: rotate(-90deg); /* Point up when expanded */
+}
+
+/* Job Details Accordion Content */
 .drivehr-job-card__details {
-	margin-top: 0.75rem;
-	padding-top: 0.75rem;
+	margin-top: 1rem;
+	padding-top: 1rem;
 	border-top: 1px solid #e5e7eb;
 }
 
@@ -255,13 +309,19 @@
 	flex: 1;
 	overflow: hidden;
 	position: relative;
+	/* Clip iframe to hide top navigation links */
+	height: calc(90vh - 4rem); /* Account for modal header */
 }
 
 .drivehr-modal__iframe {
 	width: 100%;
-	height: 100%;
 	min-height: 500px;
 	border: none;
+	display: block;
+	/* Hide DriveHR navigation: "Back to all openings" / "Back to description" */
+	/* Increased offset to completely hide navigation buttons */
+	margin-top: -155px;
+	height: calc(100% + 155px);
 }
 
 @keyframes drivehr-modal-fade-in {
@@ -296,6 +356,15 @@
    Responsive Modal
    ======================================================================== */
 
+/* Desktop optimization - navigation is smaller on larger screens */
+@media (min-width: 1024px) {
+	.drivehr-modal__iframe {
+		/* Desktop DriveHR navigation is shorter - increased offset to fully hide buttons */
+		margin-top: -145px;
+		height: calc(100% + 145px);
+	}
+}
+
 @media (max-width: 640px) {
 	.drivehr-modal__container {
 		width: 95%;
@@ -310,6 +379,10 @@
 		font-size: 1.125rem;
 	}
 
+	.drivehr-modal__body {
+		height: calc(95vh - 3.5rem); /* Account for smaller modal header on mobile */
+	}
+
 	.drivehr-modal__iframe {
 		min-height: 400px;
 	}
@@ -322,7 +395,38 @@
 /* Dark mode removed - site uses light theme only */
 
 /* ========================================================================
-   Responsive Design
+   Responsive Design - Tablet and Above (768px+)
+   ======================================================================== */
+
+@media (min-width: 768px) {
+	/* Horizontal layout: job info on left, buttons on right */
+	.drivehr-job-card__header-wrapper {
+		flex-direction: row;
+		gap: 1.5rem;
+		align-items: flex-start;
+	}
+
+	.drivehr-job-card__header {
+		flex: 1;
+		min-width: 0;
+	}
+
+	.drivehr-job-card__actions {
+		flex-direction: row;
+		justify-content: flex-end;
+		align-items: center;
+		width: auto;
+		flex-shrink: 0;
+	}
+
+	.drivehr-job-card__button {
+		flex: 0 0 auto; /* Auto width on tablet+ */
+		padding: 0.625rem 1.25rem;
+	}
+}
+
+/* ========================================================================
+   Responsive Design - Small Mobile Refinements (640px and below)
    ======================================================================== */
 
 @media (max-width: 640px) {
@@ -332,7 +436,7 @@
 	}
 
 	.drivehr-job-card__button {
-		width: 100%;
+		padding: 0.875rem 1.25rem; /* Larger tap targets on small screens */
 	}
 }
 
