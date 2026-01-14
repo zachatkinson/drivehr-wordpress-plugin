@@ -14,26 +14,46 @@
 
 	/**
 	 * Initialize accordion toggles for "Learn More" sections
+	 * Uses dynamic max-height measurement for smooth animation without content truncation
 	 */
 	function initAccordions() {
-		const toggleButtons = document.querySelectorAll('.drivehr-job-card__learn-more-toggle');
+		const toggleButtons = document.querySelectorAll('.drivehr-job-card__button--learn-more');
 
 		toggleButtons.forEach(button => {
+			const targetId = button.getAttribute('aria-controls');
+			const detailsPanel = document.getElementById(targetId);
+
+			if (!detailsPanel) return;
+
+			// Initialize max-height on load for panels that start hidden
+			if (detailsPanel.hidden) {
+				detailsPanel.style.maxHeight = '0';
+			}
+
 			button.addEventListener('click', function() {
 				const isExpanded = this.getAttribute('aria-expanded') === 'true';
-				const targetId = this.getAttribute('aria-controls');
-				const detailsPanel = document.getElementById(targetId);
 
-				if (!detailsPanel) return;
+				if (isExpanded) {
+					// Closing: animate to 0
+					detailsPanel.style.maxHeight = '0';
+					this.setAttribute('aria-expanded', 'false');
+					// Set hidden after animation completes
+					setTimeout(() => {
+						detailsPanel.hidden = true;
+					}, 400);
+				} else {
+					// Opening: measure actual height and animate to it
+					detailsPanel.hidden = false;
+					// Force reflow to ensure hidden is removed before measuring
+					detailsPanel.offsetHeight;
+					const scrollHeight = detailsPanel.scrollHeight;
+					detailsPanel.style.maxHeight = scrollHeight + 'px';
+					this.setAttribute('aria-expanded', 'true');
 
-				// Toggle expanded state
-				this.setAttribute('aria-expanded', !isExpanded);
-				detailsPanel.hidden = isExpanded;
-
-				// Animate icon rotation
-				const icon = this.querySelector('.drivehr-job-card__toggle-icon');
-				if (icon) {
-					icon.style.transform = isExpanded ? 'rotate(0deg)' : 'rotate(180deg)';
+					// After animation, remove max-height limit so content can grow if needed
+					setTimeout(() => {
+						detailsPanel.style.maxHeight = 'none';
+					}, 400);
 				}
 			});
 		});
@@ -117,6 +137,21 @@
 				closeModal(modal);
 			}
 		});
+
+		// Monitor iframe navigation - close modal if user clicks "Back to description"
+		const iframe = modal.querySelector('.drivehr-modal__iframe');
+		if (iframe) {
+			let hasLoaded = false;
+			iframe.addEventListener('load', () => {
+				// First load is the initial form page, ignore it
+				if (!hasLoaded) {
+					hasLoaded = true;
+					return;
+				}
+				// Any subsequent navigation (like clicking "Back to description") closes the modal
+				closeModal(modal);
+			});
+		}
 
 		return modal;
 	}

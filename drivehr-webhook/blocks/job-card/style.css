@@ -218,10 +218,18 @@
 	margin-top: 1rem;
 	padding-top: 1rem;
 	border-top: 1px solid #e5e7eb;
+	overflow: hidden;
+	/* max-height is set dynamically by JavaScript based on actual content height */
+	opacity: 1;
+	transition: max-height 0.4s ease-in-out, opacity 0.3s ease-in-out, margin-top 0.3s ease-in-out, padding-top 0.3s ease-in-out;
 }
 
 .drivehr-job-card__details[hidden] {
-	display: none;
+	max-height: 0 !important;
+	opacity: 0;
+	margin-top: 0;
+	padding-top: 0;
+	border-top: 1px solid transparent;
 }
 
 /* ========================================================================
