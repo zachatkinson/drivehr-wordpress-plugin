@@ -65,6 +65,11 @@ class DriveHR_Admin {
         add_action('pre_get_posts', [$this, 'handle_column_sorting']);
         add_action('admin_enqueue_scripts', [$this, 'enqueue_admin_styles']);
         add_action('admin_head', [$this, 'add_admin_styles']);
+
+        // Manual sync functionality
+        add_action('admin_notices', [$this, 'render_sync_button']);
+        add_action('wp_ajax_drivehr_manual_sync', [$this, 'handle_manual_sync_ajax']);
+        add_action('admin_enqueue_scripts', [$this, 'enqueue_sync_scripts']);
     }
 
     /**
@@ -371,7 +376,7 @@ class DriveHR_Admin {
             case 'drivehr_last_updated':
                 $last_updated = get_post_meta($post_id, 'last_updated', true);
                 if ($last_updated) {
-                    $time_diff = human_time_diff(strtotime($last_updated));
+                    $time_diff = human_time_diff(strtotime($last_updated), current_time('timestamp'));
                     echo '<abbr title="' . esc_attr(wp_date('M j, Y g:i A', strtotime($last_updated))) . '">';
                     echo esc_html($time_diff . ' ago');
                     echo '</abbr>';
@@ -482,29 +487,277 @@ class DriveHR_Admin {
                 .drivehr-job-type-temporary { background: #f8d7da; color: #721c24; }
                 .drivehr-job-type-internship { background: #e2e3e5; color: #383d41; }
                 .drivehr-job-type-remote { background: #d1ecf1; color: #0c5460; }
-                
+
                 .drivehr-sync-info p {
                     margin: 8px 0;
                 }
-                
+
                 #drivehr_job_details .form-table th {
                     width: 150px;
                 }
-                
+
                 .column-drivehr_apply_url {
                     width: 80px;
                 }
-                
+
                 .column-drivehr_last_updated {
                     width: 120px;
                 }
-                
+
                 .column-drivehr_job_id {
                     width: 100px;
                     font-family: monospace;
                 }
+
+                /* Manual Sync Button Styles */
+                .drivehr-sync-panel {
+                    display: flex;
+                    align-items: center;
+                    gap: 15px;
+                    padding: 12px 15px;
+                    background: #f0f6fc;
+                    border: 1px solid #c8d8e9;
+                    border-left: 4px solid #2271b1;
+                }
+                .drivehr-sync-panel .button {
+                    display: inline-flex;
+                    align-items: center;
+                    gap: 6px;
+                }
+                .drivehr-sync-panel .spinner {
+                    float: none;
+                    margin: 0;
+                }
+                .drivehr-sync-status {
+                    font-size: 13px;
+                    color: #50575e;
+                }
+                .drivehr-sync-status.success {
+                    color: #00a32a;
+                    font-weight: 500;
+                }
+                .drivehr-sync-status.error {
+                    color: #d63638;
+                    font-weight: 500;
+                }
             </style>
             <?php
+        }
+    }
+
+    /**
+     * Render manual sync button on DriveHR jobs list page
+     *
+     * Displays a "Sync Now" button that allows administrators to manually
+     * trigger a job synchronization from DriveHR without waiting for the
+     * scheduled cron job.
+     *
+     * @since 2.1.0
+     */
+    public function render_sync_button(): void {
+        $screen = get_current_screen();
+
+        // Only show on DriveHR jobs list page
+        if (!$screen || $screen->id !== 'edit-drivehr_job') {
+            return;
+        }
+
+        // Only show to users who can manage options
+        if (!current_user_can('manage_options')) {
+            return;
+        }
+
+        // Check if manual sync is configured
+        if (!defined('DRIVEHR_NETLIFY_TRIGGER_URL') || empty(DRIVEHR_NETLIFY_TRIGGER_URL)) {
+            echo '<div class="notice notice-info drivehr-sync-panel">
+                <p><strong>Manual Sync:</strong> To enable manual sync, add your Netlify trigger URL to wp-config.php:<br>
+                <code>define(\'DRIVEHR_NETLIFY_TRIGGER_URL\', \'https://your-site.netlify.app/.netlify/functions/manual-trigger\');</code></p>
+            </div>';
+            return;
+        }
+
+        ?>
+        <div class="notice drivehr-sync-panel">
+            <button type="button" id="drivehr-sync-now" class="button button-primary">
+                <span class="dashicons dashicons-update" style="margin-top: 3px;"></span>
+                <?php _e('Sync Jobs Now', 'drivehr'); ?>
+            </button>
+            <span class="spinner" id="drivehr-sync-spinner"></span>
+            <span class="drivehr-sync-status" id="drivehr-sync-status">
+                <?php _e('Click to manually sync jobs from DriveHR', 'drivehr'); ?>
+            </span>
+        </div>
+        <?php
+    }
+
+    /**
+     * Enqueue JavaScript for manual sync functionality
+     *
+     * @since 2.1.0
+     * @param string $hook_suffix Current admin page
+     */
+    public function enqueue_sync_scripts($hook_suffix): void {
+        $screen = get_current_screen();
+
+        // Only load on DriveHR jobs list page
+        if (!$screen || $screen->id !== 'edit-drivehr_job') {
+            return;
+        }
+
+        // Only for users who can manage options
+        if (!current_user_can('manage_options')) {
+            return;
+        }
+
+        // Only if manual sync is configured
+        if (!defined('DRIVEHR_NETLIFY_TRIGGER_URL') || empty(DRIVEHR_NETLIFY_TRIGGER_URL)) {
+            return;
+        }
+
+        // Inline script for sync functionality
+        wp_add_inline_script('jquery', $this->get_sync_javascript());
+    }
+
+    /**
+     * Get JavaScript for manual sync button
+     *
+     * @since 2.1.0
+     * @return string JavaScript code
+     */
+    private function get_sync_javascript(): string {
+        $nonce = wp_create_nonce('drivehr_manual_sync');
+        $ajax_url = admin_url('admin-ajax.php');
+
+        return "
+        jQuery(document).ready(function($) {
+            $('#drivehr-sync-now').on('click', function() {
+                var button = $(this);
+                var spinner = $('#drivehr-sync-spinner');
+                var status = $('#drivehr-sync-status');
+
+                // Disable button and show spinner
+                button.prop('disabled', true);
+                spinner.addClass('is-active');
+                status.removeClass('success error').text('Triggering sync...');
+
+                $.ajax({
+                    url: '{$ajax_url}',
+                    type: 'POST',
+                    data: {
+                        action: 'drivehr_manual_sync',
+                        nonce: '{$nonce}',
+                        force_sync: true
+                    },
+                    success: function(response) {
+                        spinner.removeClass('is-active');
+                        button.prop('disabled', false);
+
+                        if (response.success) {
+                            status.addClass('success').text(response.data.message || 'Sync triggered successfully! Jobs will update shortly.');
+                            // Refresh the page after 5 seconds to show updated jobs
+                            setTimeout(function() {
+                                status.text('Refreshing page...');
+                                location.reload();
+                            }, 5000);
+                        } else {
+                            status.addClass('error').text(response.data.message || 'Sync failed. Please try again.');
+                        }
+                    },
+                    error: function(xhr, textStatus, errorThrown) {
+                        spinner.removeClass('is-active');
+                        button.prop('disabled', false);
+                        status.addClass('error').text('Connection error: ' + errorThrown);
+                    }
+                });
+            });
+        });
+        ";
+    }
+
+    /**
+     * Handle AJAX request for manual sync trigger
+     *
+     * Calls the Netlify manual-trigger function with proper HMAC authentication
+     * to initiate a GitHub Actions workflow that scrapes and syncs jobs.
+     *
+     * @since 2.1.0
+     */
+    public function handle_manual_sync_ajax(): void {
+        // Verify nonce
+        if (!isset($_POST['nonce']) || !wp_verify_nonce($_POST['nonce'], 'drivehr_manual_sync')) {
+            wp_send_json_error(['message' => 'Security check failed']);
+            return;
+        }
+
+        // Check permissions
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(['message' => 'Permission denied']);
+            return;
+        }
+
+        // Check configuration
+        if (!defined('DRIVEHR_NETLIFY_TRIGGER_URL') || empty(DRIVEHR_NETLIFY_TRIGGER_URL)) {
+            wp_send_json_error(['message' => 'Netlify trigger URL not configured']);
+            return;
+        }
+
+        if (!defined('DRIVEHR_WEBHOOK_SECRET') || empty(DRIVEHR_WEBHOOK_SECRET)) {
+            wp_send_json_error(['message' => 'Webhook secret not configured']);
+            return;
+        }
+
+        // Prepare payload
+        $payload = wp_json_encode([
+            'force_sync' => isset($_POST['force_sync']) && $_POST['force_sync'],
+            'reason' => 'Manual sync from WordPress admin',
+            'source' => 'wordpress-admin',
+        ]);
+
+        // Generate HMAC signature
+        $signature = 'sha256=' . hash_hmac('sha256', $payload, DRIVEHR_WEBHOOK_SECRET);
+
+        // Make request to Netlify function
+        $response = wp_remote_post(DRIVEHR_NETLIFY_TRIGGER_URL, [
+            'headers' => [
+                'Content-Type' => 'application/json',
+                'X-Webhook-Signature' => $signature,
+            ],
+            'body' => $payload,
+            'timeout' => 30,
+        ]);
+
+        // Handle response
+        if (is_wp_error($response)) {
+            wp_send_json_error([
+                'message' => 'Failed to connect: ' . $response->get_error_message()
+            ]);
+            return;
+        }
+
+        $status_code = wp_remote_retrieve_response_code($response);
+        $body = wp_remote_retrieve_body($response);
+        $data = json_decode($body, true);
+
+        if ($status_code === 200 && isset($data['success']) && $data['success']) {
+            // Log successful trigger
+            if (defined('WP_DEBUG') && WP_DEBUG) {
+                error_log('[DriveHR] Manual sync triggered successfully by user ' . wp_get_current_user()->user_login);
+            }
+
+            wp_send_json_success([
+                'message' => 'Sync triggered successfully! Jobs will update in 1-2 minutes.',
+                'request_id' => $data['requestId'] ?? null,
+            ]);
+        } else {
+            $error_message = $data['error'] ?? $data['message'] ?? 'Unknown error';
+
+            if (defined('WP_DEBUG') && WP_DEBUG) {
+                error_log('[DriveHR] Manual sync failed: ' . $error_message);
+            }
+
+            wp_send_json_error([
+                'message' => 'Sync trigger failed: ' . $error_message
+            ]);
         }
     }
 }

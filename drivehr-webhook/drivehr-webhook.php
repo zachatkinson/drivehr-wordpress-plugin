@@ -3,14 +3,14 @@
  * Plugin Name: DriveHR Job Sync Webhook Handler
  * Plugin URI: https://github.com/zachatkinson/drivehr-netlify-sync
  * Description: Enterprise-grade webhook handler for receiving job data from DriveHR Netlify function and storing it as WordPress custom posts. Maintains perfect parity between DriveHR and WordPress by automatically removing jobs that are no longer listed.
- * Version: 1.7.2
+ * Version: 2.1.0
  * Author: DriveHR Integration Team
  * Requires at least: 5.0
  * Requires PHP: 7.4
  * Network: false
  * License: MIT
  * License URI: https://opensource.org/licenses/MIT
- * 
+ *
  * Security Features:
  * - HMAC-SHA256 signature verification with timing-safe comparison
  * - Timestamp-based replay attack protection (5-minute window)
@@ -27,6 +27,12 @@
  * - Transaction-safe job deletion with comprehensive logging
  * - Before/after deletion hooks for custom integrations
  * 
+ * Manual Sync Features (NEW in v2.1.0):
+ * - "Sync Jobs Now" button in WordPress admin for on-demand synchronization
+ * - Triggers GitHub Actions workflow via Netlify function
+ * - Allows immediate job updates without waiting for scheduled cron
+ * - Useful when client updates job content and wants immediate refresh
+ *
  * Installation (Regular Plugin - Recommended):
  * 1. Upload this folder to /wp-content/plugins/drivehr-webhook/
  * 2. Activate the plugin through the WordPress admin interface
@@ -34,13 +40,15 @@
  *    define('DRIVEHR_WEBHOOK_SECRET', 'your-webhook-secret-here');
  *    define('DRIVEHR_WEBHOOK_ENABLED', true);
  * 4. Update your Netlify function's WP_API_URL to: /webhook/drivehr-sync
- * 
+ * 5. (Optional) Enable manual sync button by adding:
+ *    define('DRIVEHR_NETLIFY_TRIGGER_URL', 'https://your-site.netlify.app/.netlify/functions/manual-trigger');
+ *
  * Alternative Installation (Must-Use Plugin):
  * 1. Upload this folder to /wp-content/mu-plugins/drivehr-webhook/
  * 2. Follow steps 3-4 above
  *
  * @package DriveHR
- * @version 1.7.2
+ * @version 2.1.0
  * @since 2025-01-01
  */
 
@@ -50,7 +58,7 @@ if (!defined('ABSPATH')) {
 }
 
 // Define plugin constants
-define('DRIVEHR_WEBHOOK_VERSION', '1.7.2');
+define('DRIVEHR_WEBHOOK_VERSION', '2.1.0');
 define('DRIVEHR_WEBHOOK_PATH', __FILE__);
 define('DRIVEHR_WEBHOOK_DIR', dirname(__FILE__));
 define('DRIVEHR_WEBHOOK_URL', plugins_url('', __FILE__));
@@ -250,6 +258,10 @@ add_filter('plugin_action_links_' . plugin_basename(__FILE__), function($links) 
         '<a href="' . admin_url('edit.php?post_type=drivehr_job') . '">View Jobs</a>',
         '<a href="https://github.com/zachatkinson/drivehr-netlify-sync" target="_blank">Documentation</a>',
     ];
+    // Show sync link if configured
+    if (defined('DRIVEHR_NETLIFY_TRIGGER_URL') && !empty(DRIVEHR_NETLIFY_TRIGGER_URL)) {
+        array_unshift($settings_links, '<a href="' . admin_url('edit.php?post_type=drivehr_job') . '"><strong>Sync Now</strong></a>');
+    }
     return array_merge($settings_links, $links);
 });
 
@@ -325,21 +337,26 @@ function drivehr_webhook_health_check() {
     // Check if we have any synced jobs
     $job_count = wp_count_posts('drivehr_job')->publish ?? 0;
     $webhook_endpoint = home_url('/webhook/drivehr-sync');
-    
+    $manual_sync_status = defined('DRIVEHR_NETLIFY_TRIGGER_URL') && !empty(DRIVEHR_NETLIFY_TRIGGER_URL)
+        ? '✅ Manual sync enabled'
+        : '⚪ Manual sync not configured';
+
     if ($job_count > 0) {
         $result['description'] = sprintf(
-            '<p>✅ <strong>DriveHR webhook is active and working!</strong><br>• Secret configured: <code>%s</code><br>• Currently managing: <strong>%d job(s)</strong><br>• Endpoint: <code>%s</code><br><br>🔗 <a href="%s">View Jobs</a> | 📋 <strong>Wordfence users:</strong> Ensure <code>/webhook/drivehr-sync</code> is allowlisted</p>',
+            '<p>✅ <strong>DriveHR webhook is active and working!</strong><br>• Secret configured: <code>%s</code><br>• Currently managing: <strong>%d job(s)</strong><br>• Endpoint: <code>%s</code><br>• %s<br><br>🔗 <a href="%s">View Jobs</a> | 📋 <strong>Wordfence users:</strong> Ensure <code>/webhook/drivehr-sync</code> is allowlisted</p>',
             $masked_secret,
             $job_count,
             $webhook_endpoint,
+            $manual_sync_status,
             admin_url('edit.php?post_type=drivehr_job')
         );
     } else {
         $result['status'] = 'recommended';
         $result['description'] = sprintf(
-            '<p>⚠️ <strong>DriveHR webhook is configured but no jobs have been synced yet.</strong><br>• Secret configured: <code>%s</code><br>• Endpoint: <code>%s</code><br><br>This is normal for new installations. Trigger your Netlify function to test the connection.<br><br>📋 <strong>Wordfence users:</strong> Ensure <code>/webhook/drivehr-sync</code> is allowlisted in Wordfence > All Options > Allowlisted URLs</p>',
+            '<p>⚠️ <strong>DriveHR webhook is configured but no jobs have been synced yet.</strong><br>• Secret configured: <code>%s</code><br>• Endpoint: <code>%s</code><br>• %s<br><br>This is normal for new installations. Trigger your Netlify function to test the connection.<br><br>📋 <strong>Wordfence users:</strong> Ensure <code>/webhook/drivehr-sync</code> is allowlisted in Wordfence > All Options > Allowlisted URLs</p>',
             $masked_secret,
-            $webhook_endpoint
+            $webhook_endpoint,
+            $manual_sync_status
         );
         $result['badge']['color'] = 'orange';
     }
