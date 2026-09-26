@@ -91,7 +91,7 @@ trait DriveHR_Job_Card_Renderer_Trait {
 				<!-- Header + Actions Container (Side by Side) -->
 				<div class="drivehr-job-card__header-wrapper">
 					<header class="drivehr-job-card__header">
-						<h3 class="drivehr-job-card__title" itemprop="title"<?php echo ! empty( $title_color ) ? ' style="color: ' . esc_attr( $title_color ) . '"' : ''; ?>>
+						<h3 class="drivehr-job-card__title" itemprop="title"<?php echo ! empty( $title_color ) && '' !== safecss_filter_attr( 'color: ' . $title_color ) ? ' style="' . esc_attr( safecss_filter_attr( 'color: ' . $title_color ) ) . '"' : ''; ?>>
 							<?php echo esc_html( $job->post_title ); ?>
 						</h3>
 

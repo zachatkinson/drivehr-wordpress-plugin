@@ -1,12 +1,18 @@
 <?php
 /**
- * DriveHR Webhook Handler Uninstall Script
- * 
- * Handles cleanup when the plugin is deleted (not just deactivated).
- * Removes all plugin data, options, and custom post type posts.
- * 
+ * DriveHR Webhook Plugin Uninstall
+ *
+ * Removes every piece of data this plugin created and nothing else:
+ * job posts (and their meta via wp_delete_post), taxonomy terms, options,
+ * transients, the feed-sync cron event and the custom capabilities.
+ *
+ * Deliberately does NOT touch orphaned postmeta belonging to other post
+ * types or flush the persistent object cache; those belong to the site,
+ * not to this plugin.
+ *
  * @package DriveHR
  * @since 1.0.0
+ * @since 2.3.0 Scoped cleanup to plugin-owned data; added cron, caps and feed options
  */
 
 // Prevent direct access
@@ -16,74 +22,91 @@ if (!defined('WP_UNINSTALL_PLUGIN')) {
 
 /**
  * Clean up plugin data on uninstall
- * 
- * This function removes all traces of the plugin from the WordPress
- * installation including custom posts, metadata, and options.
+ *
+ * @return void
  */
-function drivehr_webhook_uninstall_cleanup() {
+function drivehr_webhook_uninstall_cleanup(): void {
     global $wpdb;
-    
-    // Remove all DriveHR job posts
+
+    // Remove all DriveHR job posts; wp_delete_post() with force also removes
+    // the post's meta and term relationships.
     $job_posts = get_posts([
         'post_type' => 'drivehr_job',
         'numberposts' => -1,
         'post_status' => 'any',
-        'fields' => 'ids'
+        'fields' => 'ids',
     ]);
-    
+
     foreach ($job_posts as $post_id) {
-        wp_delete_post($post_id, true); // Force delete, bypass trash
+        wp_delete_post($post_id, true);
     }
-    
-    // Remove custom post type from database
-    $wpdb->delete($wpdb->posts, ['post_type' => 'drivehr_job']);
-    
-    // Remove orphaned meta data
-    $wpdb->query("DELETE meta FROM {$wpdb->postmeta} meta LEFT JOIN {$wpdb->posts} posts ON posts.ID = meta.post_id WHERE posts.ID IS NULL");
-    
-    // Remove custom taxonomies and terms
+
+    // Remove custom taxonomy terms
     $taxonomies = ['drivehr_department', 'drivehr_location', 'drivehr_job_type'];
     foreach ($taxonomies as $taxonomy) {
         $terms = get_terms([
             'taxonomy' => $taxonomy,
             'hide_empty' => false,
-            'fields' => 'ids'
+            'fields' => 'ids',
         ]);
-        
+
         if (!is_wp_error($terms)) {
             foreach ($terms as $term_id) {
                 wp_delete_term($term_id, $taxonomy);
             }
         }
     }
-    
-    // Remove plugin options and transients
-    delete_option('drivehr_webhook_version');
-    delete_option('drivehr_webhook_settings');
-    
-    // Remove rate limiting transients
-    $wpdb->query("DELETE FROM {$wpdb->options} WHERE option_name LIKE '_transient_drivehr_webhook_rate_%'");
-    $wpdb->query("DELETE FROM {$wpdb->options} WHERE option_name LIKE '_transient_timeout_drivehr_webhook_rate_%'");
-    
-    // Remove legitimate operation transients
-    $wpdb->query("DELETE FROM {$wpdb->options} WHERE option_name LIKE '_transient_drivehr_legitimate_db_op_%'");
-    $wpdb->query("DELETE FROM {$wpdb->options} WHERE option_name LIKE '_transient_timeout_drivehr_legitimate_db_op_%'");
-    
-    // Remove Wordfence integration transients
-    $wpdb->query("DELETE FROM {$wpdb->options} WHERE option_name LIKE '_transient_drivehr_wordfence_%'");
-    $wpdb->query("DELETE FROM {$wpdb->options} WHERE option_name LIKE '_transient_timeout_drivehr_wordfence_%'");
-    
-    // Flush rewrite rules to clean up custom post type URLs
+
+    // Remove the feed-sync cron event
+    wp_clear_scheduled_hook('drivehr_feed_sync');
+
+    // Remove plugin options
+    foreach (['drivehr_feed_last_hash', 'drivehr_feed_last_sync', 'drivehr_deactivation_warning'] as $option) {
+        delete_option($option);
+    }
+
+    // Remove every transient this plugin creates (rate limits, seen
+    // signatures, REST cache, sync lock, notices). Both the value and its
+    // timeout row are matched by the shared prefix.
+    $like = $wpdb->esc_like('_transient_') . 'drivehr_%';
+    $timeout_like = $wpdb->esc_like('_transient_timeout_') . 'drivehr_%';
+    $wpdb->query(
+        $wpdb->prepare(
+            "DELETE FROM {$wpdb->options} WHERE option_name LIKE %s OR option_name LIKE %s",
+            $like,
+            $timeout_like
+        )
+    );
+
+    // Remove the custom capabilities granted on activation
+    $capabilities = [
+        'edit_drivehr_job',
+        'read_drivehr_job',
+        'delete_drivehr_job',
+        'edit_drivehr_jobs',
+        'edit_others_drivehr_jobs',
+        'publish_drivehr_jobs',
+        'read_private_drivehr_jobs',
+        'create_drivehr_jobs',
+        'delete_drivehr_jobs',
+        'delete_others_drivehr_jobs',
+        'delete_private_drivehr_jobs',
+        'delete_published_drivehr_jobs',
+    ];
+    foreach (wp_roles()->role_objects as $role) {
+        foreach ($capabilities as $capability) {
+            if ($role->has_cap($capability)) {
+                $role->remove_cap($capability);
+            }
+        }
+    }
+
+    // Flush rewrite rules to drop the custom post type URLs
     flush_rewrite_rules();
-    
-    // Clear any cached data
-    wp_cache_flush();
 }
 
-// Run the cleanup
 drivehr_webhook_uninstall_cleanup();
 
-// Log the uninstall for debugging
 if (defined('WP_DEBUG') && WP_DEBUG) {
     error_log('[DriveHR Webhook] Plugin uninstalled and data cleaned up');
 }

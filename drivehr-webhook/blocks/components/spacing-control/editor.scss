@@ -1,0 +1,293 @@
+/**
+ * DriveHR Spacing Control Styles
+ *
+ * Adapted from Kadence Blocks (GPL v2+)
+ * Original: https://github.com/stellarwp/kadence-blocks
+ *
+ * Provides visual preset dots on range sliders similar to
+ * WordPress native spacing controls.
+ *
+ * @package DriveHR
+ * @since 1.8.5
+ */
+
+/* Main spacing control container */
+.drivehr-spacing-control {
+	display: block;
+	padding: 0;
+}
+
+/* Header with label and controls */
+.drivehr-spacing-header {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	margin-bottom: 8px;
+	gap: 4px;
+}
+
+.drivehr-spacing-title {
+	flex-grow: 1;
+	display: flex;
+	align-items: center;
+	gap: 4px;
+}
+
+/* Reset button */
+.drivehr-spacing-reset {
+	background: transparent;
+	border: 0;
+	box-shadow: none;
+	padding: 2px;
+	color: #a0aec0;
+	font-size: 16px;
+	min-width: auto;
+	width: auto;
+	height: auto;
+
+	&:hover {
+		color: var(--wp-admin-theme-color, #007cba);
+	}
+
+	&:disabled {
+		opacity: 0.3;
+	}
+}
+
+/* Toggle buttons (custom/preset, link/unlink) */
+.drivehr-spacing-custom-toggle,
+.drivehr-spacing-link-toggle {
+	background: transparent;
+	border: 0;
+	box-shadow: none;
+	padding: 4px;
+	color: #a0aec0;
+	min-width: auto;
+
+	svg {
+		width: 1em;
+		height: 1em;
+	}
+
+	&.is-pressed {
+		background: var(--wp-admin-theme-color, #007cba);
+		color: white;
+	}
+}
+
+/* Controls container */
+.drivehr-spacing-controls {
+	display: grid;
+	grid-template-columns: 1fr 1fr;
+	gap: 2px;
+
+	.drivehr-spacing-all {
+		grid-column: 1 / -1;
+	}
+}
+
+/* Single spacing control with icon */
+.drivehr-single-spacing-control {
+	display: flex;
+	align-items: flex-start;
+	gap: 8px;
+	margin: 0;
+	padding: 0;
+}
+
+/* Visual icon */
+.drivehr-spacing-icon {
+	flex-shrink: 0;
+	width: 24px;
+	height: 24px;
+	margin-top: 4px;
+	color: #1e1e1e;
+	opacity: 0.7;
+
+	svg {
+		width: 100%;
+		height: 100%;
+		display: block;
+	}
+}
+
+/* Control wrapper takes remaining space */
+.drivehr-spacing-control-wrapper {
+	flex: 1;
+	min-width: 0;
+}
+
+/* Preset mode with range control */
+.drivehr-spacing-preset-mode {
+	display: flex;
+	align-items: flex-end;
+	gap: 4px;
+
+	.drivehr-spacing-range-control {
+		flex-grow: 1;
+	}
+}
+
+/* Preset button for popover mode */
+.drivehr-spacing-preset-btn {
+	border: 1px solid #859cb6;
+	background: transparent;
+	color: inherit;
+	padding: 0;
+	text-align: left;
+	width: 100%;
+	box-shadow: none;
+	display: block;
+	height: auto;
+
+	.drivehr-spacing-label {
+		display: block;
+		width: 100%;
+		height: 16px;
+		padding: 0;
+		line-height: 15px;
+		font-size: 7px;
+		margin: 0;
+		font-weight: 500;
+		border-bottom: 1px solid #859cb6;
+		text-align: center;
+		text-transform: uppercase;
+	}
+
+	.drivehr-spacing-value {
+		display: block;
+		height: 30px;
+		line-height: 22px;
+		padding: 4px;
+	}
+
+	.drivehr-spacing-placeholder {
+		opacity: 0.4;
+	}
+}
+
+/* Visual side indicators */
+.drivehr-spacing-top .drivehr-spacing-preset-btn .drivehr-spacing-value {
+	box-shadow: inset 0 2px #859cb6;
+}
+
+.drivehr-spacing-right .drivehr-spacing-preset-btn .drivehr-spacing-value {
+	box-shadow: inset -2px 0 #859cb6;
+}
+
+.drivehr-spacing-bottom .drivehr-spacing-preset-btn .drivehr-spacing-value {
+	box-shadow: inset 0 -2px #859cb6;
+}
+
+.drivehr-spacing-left .drivehr-spacing-preset-btn .drivehr-spacing-value {
+	box-shadow: inset 2px 0 #859cb6;
+}
+
+/* Popover */
+.drivehr-spacing-popover {
+	min-width: 280px;
+}
+
+.drivehr-spacing-popover-inner {
+	display: flex;
+	flex-direction: row;
+	align-items: flex-end;
+	gap: 8px;
+	padding: 8px;
+
+	.components-range-control {
+		flex-grow: 1;
+	}
+
+	.components-button {
+		height: 30px;
+		min-height: 30px;
+		margin-bottom: 8px;
+	}
+}
+
+/* Custom mode with range + number input (Kadence style) */
+.drivehr-spacing-custom-mode {
+	display: block;
+}
+
+.drivehr-spacing-custom-controls {
+	display: flex;
+	align-items: flex-end;
+	gap: 4px;
+
+	.drivehr-spacing-range-control {
+		flex-grow: 1;
+		min-width: 0;
+	}
+
+	.drivehr-spacing-number-input {
+		flex-shrink: 0;
+		width: 60px;
+
+		.components-input-control__backdrop {
+			border-color: #859cb6;
+		}
+
+		input {
+			padding: 4px 8px;
+			height: 30px;
+		}
+	}
+}
+
+/* Unit select dropdown */
+.drivehr-spacing-unit-select {
+	.drivehr-unit-select {
+		appearance: none;
+		background: transparent;
+		border: 1px solid #859cb6;
+		border-radius: 2px;
+		padding: 4px 2px;
+		width: 32px;
+		font-size: 10px;
+		line-height: 1;
+		text-transform: uppercase;
+		text-align-last: center;
+		height: 32px;
+		cursor: pointer;
+
+		&:hover:not(:disabled) {
+			background-color: #edf2f7;
+		}
+
+		&:focus {
+			border-color: var(--wp-admin-theme-color, #007cba);
+			box-shadow: inset 0 0 0 1px var(--wp-admin-theme-color, #007cba);
+			outline: none;
+		}
+	}
+}
+
+/* Range control customizations for visual dots */
+.drivehr-spacing-range-control {
+	.components-range-control__wrapper {
+		margin-bottom: 0;
+	}
+
+	.components-base-control__field {
+		margin-bottom: 0;
+	}
+
+	/* Visual dots on the slider track */
+	.components-range-control__marks {
+		display: flex;
+		justify-content: space-between;
+	}
+
+	.components-range-control__mark {
+		width: 2px;
+		height: 8px;
+		background: rgba(0, 0, 0, 0.2);
+		border-radius: 1px;
+	}
+
+	.components-range-control__mark-label {
+		display: none;
+	}
+}

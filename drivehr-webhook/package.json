@@ -1,6 +1,6 @@
 {
 	"name": "drivehr-webhook",
-	"version": "1.7.2",
+	"version": "2.0.4",
 	"description": "DriveHR Job Sync Webhook Handler with Gutenberg Blocks",
 	"author": "DriveHR Integration Team",
 	"license": "MIT",

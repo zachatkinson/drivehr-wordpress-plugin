@@ -14,17 +14,27 @@
 		"align": ["wide", "full"],
 		"spacing": {
 			"margin": true,
-			"padding": true
+			"padding": true,
+			"blockGap": true
 		},
 		"color": {
 			"background": true,
 			"text": true,
-			"link": true
+			"link": true,
+			"gradients": true
 		},
 		"typography": {
 			"fontSize": true,
-			"lineHeight": true
-		}
+			"lineHeight": true,
+			"fontWeight": true
+		},
+		"border": {
+			"color": true,
+			"radius": true,
+			"style": true,
+			"width": true
+		},
+		"shadow": true
 	},
 	"attributes": {
 		"showLocation": {
@@ -37,7 +47,7 @@
 		},
 		"postsPerPage": {
 			"type": "number",
-			"default": -1
+			"default": 50
 		},
 		"orderBy": {
 			"type": "string",
@@ -49,21 +59,41 @@
 			"default": "DESC",
 			"enum": ["ASC", "DESC"]
 		},
-		"backgroundColor": {
+		"cardBackgroundColor": {
 			"type": "string",
-			"default": "theme-palette7"
+			"default": ""
 		},
-		"style": {
+		"cardTextColor": {
+			"type": "string",
+			"default": ""
+		},
+		"cardTitleColor": {
+			"type": "string",
+			"default": ""
+		},
+		"cardBorder": {
 			"type": "object",
 			"default": {
-				"spacing": {
-					"padding": {
-						"top": "var(--wp--preset--spacing--30)",
-						"right": "var(--wp--preset--spacing--30)",
-						"bottom": "var(--wp--preset--spacing--30)",
-						"left": "var(--wp--preset--spacing--30)"
-					}
-				}
+				"color": "",
+				"style": "solid",
+				"width": "0px"
+			}
+		},
+		"cardBorderRadius": {
+			"type": "string",
+			"default": "8px"
+		},
+		"cardShadow": {
+			"type": "string",
+			"default": ""
+		},
+		"cardPadding": {
+			"type": "object",
+			"default": {
+				"top": "md",
+				"right": "md",
+				"bottom": "md",
+				"left": "md"
 			}
 		}
 	},

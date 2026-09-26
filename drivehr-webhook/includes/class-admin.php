@@ -305,10 +305,10 @@ class DriveHR_Admin {
         ];
         
         foreach ($meta_fields as $field) {
-            if (isset($_POST[ $field ])) {
-                $value = sanitize_text_field($_POST[ $field ]);
+            if (isset($_POST[ $field ]) && is_string($_POST[ $field ])) {
+                $value = sanitize_text_field(wp_unslash($_POST[ $field ]));
                 if ($field === 'apply_url') {
-                    $value = esc_url_raw($value);
+                    $value = esc_url_raw($value, ['http', 'https']);
                 }
                 update_post_meta($post_id, $field, $value);
             }
@@ -628,6 +628,9 @@ class DriveHR_Admin {
         $nonce = wp_create_nonce('drivehr_manual_sync');
         $ajax_url = admin_url('admin-ajax.php');
 
+        $ajax_url = esc_js($ajax_url);
+        $nonce = esc_js($nonce);
+
         return "
         jQuery(document).ready(function($) {
             $('#drivehr-sync-now').on('click', function() {
@@ -683,15 +686,23 @@ class DriveHR_Admin {
      * @since 2.1.0
      */
     public function handle_manual_sync_ajax(): void {
-        // Verify nonce
-        if (!isset($_POST['nonce']) || !wp_verify_nonce($_POST['nonce'], 'drivehr_manual_sync')) {
-            wp_send_json_error(['message' => 'Security check failed']);
+        // Check permissions first, then the nonce
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(['message' => 'Permission denied'], 403);
             return;
         }
 
-        // Check permissions
-        if (!current_user_can('manage_options')) {
-            wp_send_json_error(['message' => 'Permission denied']);
+        $nonce = isset($_POST['nonce']) ? sanitize_text_field(wp_unslash($_POST['nonce'])) : '';
+        if (!wp_verify_nonce($nonce, 'drivehr_manual_sync')) {
+            wp_send_json_error(['message' => 'Security check failed'], 403);
+            return;
+        }
+
+        // The trigger URL must be an https:// endpoint we are allowed to call
+        if (defined('DRIVEHR_NETLIFY_TRIGGER_URL') && !empty(DRIVEHR_NETLIFY_TRIGGER_URL)
+            && (wp_parse_url(DRIVEHR_NETLIFY_TRIGGER_URL, PHP_URL_SCHEME) !== 'https' || !wp_http_validate_url(DRIVEHR_NETLIFY_TRIGGER_URL))
+        ) {
+            wp_send_json_error(['message' => 'Netlify trigger URL must be a valid https:// URL']);
             return;
         }
 
@@ -708,22 +719,28 @@ class DriveHR_Admin {
 
         // Prepare payload
         $payload = wp_json_encode([
-            'force_sync' => isset($_POST['force_sync']) && $_POST['force_sync'],
+            'force_sync' => isset($_POST['force_sync']) && filter_var(wp_unslash($_POST['force_sync']), FILTER_VALIDATE_BOOLEAN),
             'reason' => 'Manual sync from WordPress admin',
             'source' => 'wordpress-admin',
         ]);
 
-        // Generate HMAC signature
-        $signature = 'sha256=' . hash_hmac('sha256', $payload, DRIVEHR_WEBHOOK_SECRET);
+        // Timestamp-bound signature (v2): HMAC over "{timestamp}.{body}" so the
+        // request cannot be replayed against the Netlify function later.
+        $timestamp = (string) time();
+        $signature_v2 = 'sha256=' . hash_hmac('sha256', $timestamp . '.' . $payload, DRIVEHR_WEBHOOK_SECRET);
 
         // Make request to Netlify function
         $response = wp_remote_post(DRIVEHR_NETLIFY_TRIGGER_URL, [
             'headers' => [
                 'Content-Type' => 'application/json',
-                'X-Webhook-Signature' => $signature,
+                'X-Webhook-Signature-V2' => $signature_v2,
+                'X-Webhook-Timestamp' => $timestamp,
             ],
             'body' => $payload,
             'timeout' => 30,
+            'sslverify' => true,
+            'reject_unsafe_urls' => true,
+            'limit_response_size' => 65536,
         ]);
 
         // Handle response
@@ -749,10 +766,12 @@ class DriveHR_Admin {
                 'request_id' => $data['requestId'] ?? null,
             ]);
         } else {
-            $error_message = $data['error'] ?? $data['message'] ?? 'Unknown error';
+            $error_message = is_array($data) && is_string($data['error'] ?? $data['message'] ?? null)
+                ? sanitize_text_field($data['error'] ?? $data['message'])
+                : 'Unknown error';
 
             if (defined('WP_DEBUG') && WP_DEBUG) {
-                error_log('[DriveHR] Manual sync failed: ' . $error_message);
+                error_log('[DriveHR] Manual sync failed (HTTP ' . (int) $status_code . '): ' . $error_message);
             }
 
             wp_send_json_error([

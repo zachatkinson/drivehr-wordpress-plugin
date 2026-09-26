@@ -42,3 +42,5 @@ wp-config.php
 
 # Documentation builds
 docs/_build/
+# Info-ZIP temp files left by interrupted zip runs
+zi??????

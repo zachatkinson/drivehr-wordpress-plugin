@@ -3,23 +3,30 @@
  * Plugin Name: DriveHR Job Sync Webhook Handler
  * Plugin URI: https://github.com/zachatkinson/drivehr-netlify-sync
  * Description: Enterprise-grade webhook handler for receiving job data from DriveHR Netlify function and storing it as WordPress custom posts. Maintains perfect parity between DriveHR and WordPress by automatically removing jobs that are no longer listed.
- * Version: 2.1.1
+ * Version: 2.3.0
  * Author: DriveHR Integration Team
- * Requires at least: 5.0
+ * Requires at least: 6.0
  * Requires PHP: 7.4
  * Network: false
  * License: MIT
  * License URI: https://opensource.org/licenses/MIT
  *
  * Security Features:
- * - HMAC-SHA256 signature verification with timing-safe comparison
- * - Timestamp-based replay attack protection (5-minute window)
- * - Rate limiting (10 requests per minute per IP)
- * - Input validation and sanitization using WordPress functions
+ * - HMAC-SHA256 signature over "{timestamp}.{body}" with timing-safe comparison
+ * - Replay protection: 5-minute timestamp window plus seen-signature cache
+ * - Rate limiting (10 requests per minute per IP, REMOTE_ADDR unless a
+ *   trusted proxy header is declared via DRIVEHR_TRUSTED_PROXY_HEADER)
+ * - JSON-only requests with a 2 MiB body limit
+ * - Per-record validation and sanitization using WordPress functions
  * - Environment-based secret management (no hardcoded secrets)
  * - Comprehensive error handling with secure responses
  * - Database transaction safety for atomic operations
  * - Optional debug logging for development
+ *
+ * Recommended deployment (v2.2.0+): pull mode. Leave DRIVEHR_WEBHOOK_ENABLED
+ * undefined so no public POST endpoint exists at all; the plugin fetches the
+ * signed feed over HTTPS on WP-Cron instead. Define DRIVEHR_WEBHOOK_ENABLED
+ * only if you still need push delivery.
  * 
  * Sync Features (NEW in v1.1.0):
  * - Automatic removal of jobs no longer in DriveHR feed
@@ -58,7 +65,7 @@ if (!defined('ABSPATH')) {
 }
 
 // Define plugin constants
-define('DRIVEHR_WEBHOOK_VERSION', '2.1.0');
+define('DRIVEHR_WEBHOOK_VERSION', '2.3.0');
 define('DRIVEHR_WEBHOOK_PATH', __FILE__);
 define('DRIVEHR_WEBHOOK_DIR', dirname(__FILE__));
 define('DRIVEHR_WEBHOOK_URL', plugins_url('', __FILE__));
@@ -72,10 +79,11 @@ define('DRIVEHR_WEBHOOK_URL', plugins_url('', __FILE__));
  */
 add_action('plugins_loaded', function() {
     // Load core components
+    require_once DRIVEHR_WEBHOOK_DIR . '/includes/class-job-sync.php';
     require_once DRIVEHR_WEBHOOK_DIR . '/includes/class-webhook-handler.php';
+    require_once DRIVEHR_WEBHOOK_DIR . '/includes/class-feed-sync.php';
     require_once DRIVEHR_WEBHOOK_DIR . '/includes/class-post-type.php';
     require_once DRIVEHR_WEBHOOK_DIR . '/includes/class-admin.php';
-    require_once DRIVEHR_WEBHOOK_DIR . '/includes/class-wordfence-compatibility.php';
     require_once DRIVEHR_WEBHOOK_DIR . '/includes/class-rest-api-cache.php';
 
     // Load shared rendering trait (v1.7.0+) before block classes
@@ -90,7 +98,7 @@ add_action('plugins_loaded', function() {
     DriveHR_Post_Type::get_instance();
     DriveHR_Admin::get_instance();
     DriveHR_Webhook_Handler::get_instance();
-    DriveHR_Wordfence_Compatibility::get_instance();
+    DriveHR_Feed_Sync::get_instance();
     DriveHR_REST_API_Cache::get_instance();
 
     // Initialize Gutenberg blocks (v1.7.0+)
@@ -173,6 +181,13 @@ register_activation_hook(__FILE__, function() {
  * Cleanup when plugin is deactivated and warn administrators.
  */
 register_deactivation_hook(__FILE__, function() {
+    // Clear the feed sync cron schedule (v2.2.0)
+    if (class_exists('DriveHR_Feed_Sync')) {
+        DriveHR_Feed_Sync::clear_schedule();
+    } else {
+        wp_clear_scheduled_hook('drivehr_feed_sync');
+    }
+
     // Remove DriveHR job capabilities from all roles
     $capabilities = [
         'edit_drivehr_job',
@@ -241,14 +256,73 @@ add_action('admin_notices', function() {
         delete_transient('drivehr_show_success_notice');
     }
     
-    // Check if webhook is disabled
-    if (!defined('DRIVEHR_WEBHOOK_ENABLED') || DRIVEHR_WEBHOOK_ENABLED !== true) {
+    // Warn when neither delivery mode can work
+    $feed_sync_enabled = class_exists('DriveHR_Feed_Sync') && DriveHR_Feed_Sync::get_instance()->is_enabled();
+    $webhook_enabled = defined('DRIVEHR_WEBHOOK_ENABLED') && DRIVEHR_WEBHOOK_ENABLED === true;
+    if (!$feed_sync_enabled && !$webhook_enabled) {
         echo '<div class="notice notice-warning">
-            <p><strong>📡 DriveHR Webhook Disabled:</strong> Please enable the webhook in wp-config.php:<br>
-            <code>define(\'DRIVEHR_WEBHOOK_ENABLED\', true);</code></p>
+            <p><strong>📡 DriveHR Sync Inactive:</strong> Neither the signed-feed pull nor the webhook is enabled.
+            Pull mode (recommended) activates automatically once <code>DRIVEHR_WEBHOOK_SECRET</code> is defined.</p>
+        </div>';
+    }
+
+    // Weak secrets undermine every other control
+    if (defined('DRIVEHR_WEBHOOK_SECRET') && !empty(DRIVEHR_WEBHOOK_SECRET) && strlen(DRIVEHR_WEBHOOK_SECRET) < 32) {
+        echo '<div class="notice notice-error">
+            <p><strong>🔐 DriveHR Secret Too Short:</strong> <code>DRIVEHR_WEBHOOK_SECRET</code> should be at least 32 random characters.
+            Generate one with <code>openssl rand -hex 32</code> and update it in wp-config.php, Netlify and GitHub Actions.</p>
         </div>';
     }
 });
+
+/**
+ * Send hardening headers on public responses (v2.3.0)
+ *
+ * Applied to front-end and REST responses only when the site does not already
+ * send them, so a host-level or security-plugin configuration always wins.
+ * Header names are compared case-insensitively.
+ *
+ * @since 2.3.0
+ */
+add_action('send_headers', function() {
+    if (is_admin() || headers_sent()) {
+        return;
+    }
+
+    $wanted = [
+        'X-Content-Type-Options' => 'nosniff',
+        'X-Frame-Options' => 'SAMEORIGIN',
+        'Referrer-Policy' => 'strict-origin-when-cross-origin',
+        'Permissions-Policy' => 'geolocation=(), microphone=(), camera=()',
+    ];
+
+    $already_sent = array_map(function($header) {
+        return strtolower(trim(strtok($header, ':')));
+    }, headers_list());
+
+    foreach ($wanted as $name => $value) {
+        if (!in_array(strtolower($name), $already_sent, true)) {
+            header($name . ': ' . $value);
+        }
+    }
+});
+
+/**
+ * Hide plugin-generated version strings from anonymous visitors (v2.3.0)
+ *
+ * Only affects this plugin's own asset handles; other plugins and core keep
+ * their own behaviour.
+ *
+ * @since 2.3.0
+ */
+add_filter('script_loader_src', 'drivehr_strip_plugin_asset_version', 20);
+add_filter('style_loader_src', 'drivehr_strip_plugin_asset_version', 20);
+function drivehr_strip_plugin_asset_version($src) {
+    if (is_string($src) && strpos($src, '/plugins/drivehr-webhook/') !== false && !is_user_logged_in()) {
+        $src = remove_query_arg('ver', $src);
+    }
+    return $src;
+}
 
 /**
  * Add plugin action links for easy access to documentation
@@ -322,44 +396,63 @@ function drivehr_webhook_health_check() {
         return $result;
     }
 
-    // Secret exists - show configuration summary
+    // Secret strength: never echo any part of the secret, only its length class
     $secret_length = strlen(DRIVEHR_WEBHOOK_SECRET);
-    $masked_secret = str_repeat('•', min($secret_length - 4, 20)) . substr(DRIVEHR_WEBHOOK_SECRET, -4);
-
-    // Check if webhook is enabled
-    if (!defined('DRIVEHR_WEBHOOK_ENABLED') || DRIVEHR_WEBHOOK_ENABLED !== true) {
-        $result['status'] = 'recommended';
-        $result['description'] = '<p>Webhook is configured but disabled. Enable it in wp-config.php:<br><code>define(\'DRIVEHR_WEBHOOK_ENABLED\', true);</code></p>';
-        $result['badge']['color'] = 'orange';
+    if ($secret_length < 32) {
+        $result['status'] = 'critical';
+        $result['description'] = '<p><strong>❌ Webhook secret is too short.</strong><br>Use at least 32 random characters (<code>openssl rand -hex 32</code>) and update it in wp-config.php, Netlify and GitHub Actions at the same time.</p>';
+        $result['badge']['color'] = 'red';
         return $result;
     }
 
-    // Check if we have any synced jobs
-    $job_count = wp_count_posts('drivehr_job')->publish ?? 0;
-    $webhook_endpoint = home_url('/webhook/drivehr-sync');
-    $manual_sync_status = defined('DRIVEHR_NETLIFY_TRIGGER_URL') && !empty(DRIVEHR_NETLIFY_TRIGGER_URL)
-        ? '✅ Manual sync enabled'
-        : '⚪ Manual sync not configured';
+    $webhook_enabled = defined('DRIVEHR_WEBHOOK_ENABLED') && DRIVEHR_WEBHOOK_ENABLED === true;
+    $feed_sync_enabled = class_exists('DriveHR_Feed_Sync') && DriveHR_Feed_Sync::get_instance()->is_enabled();
 
-    if ($job_count > 0) {
-        $result['description'] = sprintf(
-            '<p>✅ <strong>DriveHR webhook is active and working!</strong><br>• Secret configured: <code>%s</code><br>• Currently managing: <strong>%d job(s)</strong><br>• Endpoint: <code>%s</code><br>• %s<br><br>🔗 <a href="%s">View Jobs</a> | 📋 <strong>Wordfence users:</strong> Ensure <code>/webhook/drivehr-sync</code> is allowlisted</p>',
-            $masked_secret,
-            $job_count,
-            $webhook_endpoint,
-            $manual_sync_status,
-            admin_url('edit.php?post_type=drivehr_job')
-        );
-    } else {
-        $result['status'] = 'recommended';
-        $result['description'] = sprintf(
-            '<p>⚠️ <strong>DriveHR webhook is configured but no jobs have been synced yet.</strong><br>• Secret configured: <code>%s</code><br>• Endpoint: <code>%s</code><br>• %s<br><br>This is normal for new installations. Trigger your Netlify function to test the connection.<br><br>📋 <strong>Wordfence users:</strong> Ensure <code>/webhook/drivehr-sync</code> is allowlisted in Wordfence > All Options > Allowlisted URLs</p>',
-            $masked_secret,
-            $webhook_endpoint,
-            $manual_sync_status
-        );
-        $result['badge']['color'] = 'orange';
+    if (!$webhook_enabled && !$feed_sync_enabled) {
+        $result['status'] = 'critical';
+        $result['description'] = '<p>Secret is set but both delivery modes are disabled. Remove <code>DRIVEHR_FEED_SYNC_ENABLED</code> (or set it to true) to use pull mode.</p>';
+        $result['badge']['color'] = 'red';
+        return $result;
     }
+
+    $job_count = wp_count_posts('drivehr_job')->publish ?? 0;
+    $mode_lines = [];
+    if ($feed_sync_enabled) {
+        $last_sync = get_option('drivehr_feed_last_sync');
+        $last_text = is_array($last_sync) && isset($last_sync['time'])
+            ? sprintf('last pull %s ago, %s', human_time_diff((int) $last_sync['time']), !empty($last_sync['success']) ? 'succeeded' : 'failed')
+            : 'no pull recorded yet';
+        $mode_lines[] = '✅ Pull mode active (signed feed over HTTPS, hourly WP-Cron; ' . esc_html($last_text) . ')';
+    }
+    if ($webhook_enabled) {
+        $trusted_proxy = defined('DRIVEHR_TRUSTED_PROXY_HEADER') && !empty(DRIVEHR_TRUSTED_PROXY_HEADER);
+        $mode_lines[] = sprintf(
+            '⚠️ Push webhook enabled at <code>%s</code> (public POST endpoint). Prefer pull mode and remove <code>DRIVEHR_WEBHOOK_ENABLED</code> once the feed sync is confirmed working. Rate limiting keys on %s.',
+            esc_html(home_url('/webhook/drivehr-sync')),
+            $trusted_proxy ? 'the declared proxy header' : 'REMOTE_ADDR (define DRIVEHR_TRUSTED_PROXY_HEADER if you are behind a CDN)'
+        );
+        if (!$feed_sync_enabled) {
+            $result['status'] = 'recommended';
+            $result['badge']['color'] = 'orange';
+        }
+    }
+    $mode_lines[] = defined('DRIVEHR_NETLIFY_TRIGGER_URL') && !empty(DRIVEHR_NETLIFY_TRIGGER_URL)
+        ? '✅ Manual sync button enabled'
+        : '⚪ Manual sync button not configured';
+
+    if ($job_count === 0) {
+        $result['status'] = 'recommended';
+        $result['badge']['color'] = 'orange';
+        $mode_lines[] = '⚠️ No jobs have been synced yet. This is normal for a new installation.';
+    } else {
+        $mode_lines[] = sprintf('Currently managing <strong>%d job(s)</strong>', $job_count);
+    }
+
+    $result['description'] = sprintf(
+        '<p>%s<br><br>🔗 <a href="%s">View Jobs</a></p>',
+        implode('<br>• ', array_merge([''], $mode_lines)),
+        esc_url(admin_url('edit.php?post_type=drivehr_job'))
+    );
 
     return $result;
 }

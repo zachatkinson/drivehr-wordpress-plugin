@@ -4,7 +4,7 @@ Tags: jobs, webhook, drivehr, sync, employment, careers, netlify
 Requires at least: 5.0
 Tested up to: 6.4
 Requires PHP: 7.4
-Stable tag: 1.1.4
+Stable tag: 2.3.0
 License: MIT
 License URI: https://opensource.org/licenses/MIT
 
@@ -29,9 +29,13 @@ The DriveHR Job Sync Webhook Handler is a secure, enterprise-grade WordPress plu
 **Security Features:**
 
 * No hardcoded secrets - all configuration via wp-config.php
+* Timestamp-bound HMAC-SHA256 signatures with a seen-signature cache (no replay)
+* JSON-only webhook requests with a 2 MiB body limit
+* Per-record validation: typed fields, length limits, http(s)-only URLs
+* Rate limiting on REMOTE_ADDR (opt-in trusted proxy header only)
+* REST cache restricted to anonymous, view-context, published data
 * Comprehensive error handling without information leakage
-* Proxy-aware IP detection for accurate rate limiting
-* Secure headers and response sanitization
+* Secure headers on webhook and public responses
 * WordPress security best practices throughout
 
 **Perfect For:**
@@ -155,6 +159,26 @@ Enable WP_DEBUG and WP_DEBUG_LOG in wp-config.php to see detailed webhook proces
 4. Job taxonomies for organization (departments, locations, types)
 
 == Changelog ==
+
+= 2.3.0 =
+* **SECURITY**: Webhook signature now covers the timestamp (X-Webhook-Signature-V2 = HMAC over "{timestamp}.{body}"); the 5-minute window is enforced and each signature is accepted once. Requires the matching scraper release, which sends both legacy and V2 headers.
+* **SECURITY**: Rate limiting keys on REMOTE_ADDR; forwarding headers are only trusted when named in DRIVEHR_TRUSTED_PROXY_HEADER
+* **SECURITY**: Webhook requires Content-Type application/json and rejects bodies over 2 MiB before reading them
+* **SECURITY**: Every job record is validated (string types, id pattern, length caps); apply/source URLs limited to http(s); rawData no longer stored in postmeta; stale-job removal only trusts records that were actually stored
+* **SECURITY**: REST response cache limited to anonymous, view-context, published-only requests on the exact collection route (previously served cached responses before permission checks)
+* **SECURITY**: Removed the Wordfence compatibility class, which attempted to bypass login security for webhook-looking paths and stored raw request headers in the options table
+* **SECURITY**: Feed sync enforces https, TLS verification, unsafe-URL rejection, a 4 MiB response limit and a run lock; manual pull and manual sync check capability before nonce and unslash input
+* **SECURITY**: Block card styles pass through safecss_filter_attr(); apply modal iframe is sandboxed and only frames http(s) URLs
+* **SECURITY**: Site Health no longer reveals any part of the secret and warns when it is shorter than 32 characters; hardening headers added to public responses when the host does not already send them
+* **CHANGED**: uninstall.php now removes only plugin-owned data (posts, terms, feed options, all drivehr_ transients, cron event, capabilities) and no longer deletes site-wide orphaned postmeta or flushes the object cache
+* **CHANGED**: Manual "Sync Jobs Now" sends the V2 signature to the Netlify trigger
+
+= 2.2.0 =
+* **ADDED**: Pull-based feed sync - WordPress now fetches an HMAC-signed job feed from the repository's job-data branch on an hourly WP-Cron schedule (immune to host-level bot protection blocking inbound webhooks)
+* **ADDED**: "Pull Feed Now" button on the DriveHR Jobs list screen for on-demand sync
+* **ADDED**: Safety guards - signature verification over exact feed bytes, stale-feed rejection, unchanged-feed skip, and empty-feed protection against accidental mass deletion
+* **CHANGED**: Job processing extracted into shared DriveHR_Job_Sync engine used by both the feed sync and the legacy webhook (identical create/update/remove behavior)
+* **CHANGED**: Push webhook is now a fallback; it can be disabled once feed sync is verified
 
 = 1.1.4 =
 * **FIXED**: Site Health link permissions - only shows to users who can access Site Health

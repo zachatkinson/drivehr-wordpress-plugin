@@ -140,14 +140,30 @@ class DriveHR_REST_API_Cache {
             return false;
         }
 
-        // Only cache list requests (not individual jobs)
-        $route = $request->get_route();
-        if (strpos($route, '/wp/v2/drivehr-jobs') === false) {
+        // rest_pre_dispatch runs before the route's permission_callback, so a
+        // cached response is served to anyone who sends the same query string.
+        // Restrict caching to what an anonymous visitor could fetch anyway:
+        // logged-out, view context, published posts only. Everything else
+        // (block editor with context=edit, draft/private status filters) goes
+        // straight to the controller and its capability checks.
+        if (is_user_logged_in()) {
+            return false;
+        }
+        if ('view' !== ($request->get_param('context') ?? 'view')) {
+            return false;
+        }
+        $status = $request->get_param('status');
+        if (null !== $status && 'publish' !== $status) {
+            return false;
+        }
+        if (null !== $request->get_param('password')) {
             return false;
         }
 
-        // Don't cache individual job requests (route ends with /\d+)
-        if (preg_match('/\/\d+$/', $route)) {
+        // Only cache the collection route itself; sub-routes such as
+        // /{id}, /{id}/autosaves or /{id}/revisions are never cached.
+        $route = $request->get_route();
+        if (!preg_match('#^/wp/v2/drivehr-jobs/?$#', $route)) {
             return false;
         }
 
@@ -167,14 +183,15 @@ class DriveHR_REST_API_Cache {
     private function get_cache_key($request): string {
         $params = $request->get_query_params();
 
-        // Remove unnecessary parameters that don't affect response
+        // Locale does not affect job data; the nonce is irrelevant because
+        // only anonymous requests are ever cached (see should_cache_request).
         unset($params['_locale']);
         unset($params['_wpnonce']);
 
         // Sort parameters for consistent cache keys
         ksort($params);
 
-        return self::CACHE_PREFIX . md5(serialize($params));
+        return self::CACHE_PREFIX . md5(wp_json_encode($params));
     }
 
     /**

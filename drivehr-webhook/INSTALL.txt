@@ -1,5 +1,37 @@
-DRIVEHR JOB SYNC WEBHOOK HANDLER v1.1.4
+DRIVEHR JOB SYNC v2.3.0
 ==========================================
+
+As of v2.2.0 the primary sync mechanism is PULL-BASED: WordPress fetches
+an HMAC-signed job feed published by the GitHub Actions scraper to the
+repository's `job-data` branch, on an hourly WP-Cron schedule. The legacy
+push webhook remains available as a fallback during cutover.
+
+v2.3.0 SECURITY HARDENING - READ BEFORE UPGRADING
+=================================================
+
+* The push webhook now requires the timestamp-bound signature scheme
+  (header X-Webhook-Signature-V2 = HMAC-SHA256 over "{timestamp}.{body}").
+  Deploy the matching scraper/Netlify release FIRST; it sends both the
+  legacy and the V2 headers, so the order is: update the repository,
+  then upload this plugin. Older plugin versions keep working with the
+  new scraper because the legacy header is still sent.
+* Manual "Sync Jobs Now" also uses the V2 scheme and needs the matching
+  Netlify manual-trigger function.
+* Rate limiting now keys on REMOTE_ADDR. If the site sits behind a CDN
+  or reverse proxy that sets a client-IP header, declare it:
+      define('DRIVEHR_TRUSTED_PROXY_HEADER', 'CF-Connecting-IP');
+  Undeclared forwarding headers are ignored because they are
+  attacker-controlled.
+* The Wordfence "compatibility" class was removed. It never exempted
+  anything Wordfence honours and a security integration must never loosen
+  the host's protections. Pull mode needs no firewall allowlisting.
+* The REST response cache no longer serves cached responses to anyone
+  but anonymous, view-context requests for published jobs.
+* Rotate DRIVEHR_WEBHOOK_SECRET as part of this upgrade if it has ever
+  been committed, shared, or present on a compromised host. Generate a
+  new one with:  openssl rand -hex 32
+  and set it in wp-config.php, Netlify (WEBHOOK_SECRET) and the GitHub
+  repository secret WEBHOOK_SECRET at the same time.
 
 QUICK INSTALLATION GUIDE
 ========================
@@ -17,38 +49,73 @@ QUICK INSTALLATION GUIDE
    Add these lines to your wp-config.php file:
 
    define('DRIVEHR_WEBHOOK_SECRET', 'your-webhook-secret-here');
+
+   IMPORTANT: Replace 'your-webhook-secret-here' with the same secret
+   configured as WEBHOOK_SECRET in the GitHub repository secrets. It is
+   used to verify the HMAC-SHA256 signature of the pulled feed.
+
+   Optional feed sync constants:
+
+   define('DRIVEHR_FEED_URL', 'https://raw.githubusercontent.com/zachatkinson/drivehr-netlify-sync/job-data/jobs.json');
+       Override the feed location (defaults to the URL above).
+
+   define('DRIVEHR_FEED_SYNC_ENABLED', false);
+       Disable pull-based sync entirely (enabled by default when the
+       secret is configured).
+
+   define('DRIVEHR_FEED_ALLOW_EMPTY', true);
+       Allow an empty feed to remove all jobs. By default an empty feed
+       is refused while jobs exist, protecting against accidental mass
+       deletion.
+
+   Legacy push webhook (fallback only):
+
    define('DRIVEHR_WEBHOOK_ENABLED', true);
+       Enables the inbound /webhook/drivehr-sync endpoint. Leave this
+       UNDEFINED (or false) once pull-based sync is verified working;
+       with it undefined the site exposes no public POST endpoint at all.
 
-   IMPORTANT: Replace 'your-webhook-secret-here' with a secure random string
+   define('DRIVEHR_TRUSTED_PROXY_HEADER', 'CF-Connecting-IP');
+       Only when behind a CDN/proxy: the single header that carries the
+       real client IP, used for webhook rate limiting. Never set this
+       unless every request reaches PHP through that proxy.
 
-4. UPDATE NETLIFY FUNCTION
-   Set these environment variables in your Netlify function:
-   
-   WP_API_URL = https://yoursite.com/webhook/drivehr-sync
-   WEBHOOK_SECRET = (same value as DRIVEHR_WEBHOOK_SECRET)
+4. SET UP A REAL CRON (RECOMMENDED)
+   WP-Cron only fires on page visits, so low-traffic sites may sync
+   late. In cPanel > Cron Jobs, add (every 15 minutes):
+
+   */15 * * * * wget -q -O - "https://yoursite.com/wp-cron.php?doing_wp_cron" >/dev/null 2>&1
+
+   Optionally add to wp-config.php for consistent scheduling:
+   define('DISABLE_WP_CRON', true);
 
 5. TEST INSTALLATION
-   - Visit WordPress Admin > Tools > Site Health
-   - Look for "DriveHR Webhook Configuration" test
-   - Should show "Good" status if configured correctly
+   - Visit WordPress Admin > DriveHR Jobs
+   - Click the "Pull Feed Now" button to trigger an immediate sync
+   - Visit WordPress Admin > Tools > Site Health for configuration checks
 
-WEBHOOK ENDPOINT
-===============
-Your webhook will be available at:
-https://yoursite.com/webhook/drivehr-sync
+HOW SYNC WORKS
+==============
+1. GitHub Actions scrapes DriveHR every 6 hours (Playwright)
+2. The workflow publishes jobs.json + jobs.json.sig (HMAC-SHA256)
+   to the repository's job-data branch
+3. WordPress pulls the feed hourly, verifies the signature over the
+   exact file bytes, skips unchanged feeds, and applies changes
 
 ADMIN INTERFACE
 ==============
 After installation, manage jobs at:
 WordPress Admin > DriveHR Jobs
+The jobs list screen includes a "Pull Feed Now" button for on-demand sync.
 
 TROUBLESHOOTING
 ==============
-If you see admin notices about missing configuration:
-1. Double-check wp-config.php constants
-2. Ensure webhook secret matches between WordPress and Netlify  
-3. Verify plugin is activated (if using regular plugin installation)
-4. Check WordPress error logs for detailed information
+If jobs are not syncing:
+1. Double-check wp-config.php constants (secret must match GitHub secret)
+2. Confirm the job-data branch exists and jobs.json is current
+3. Verify a real cron is hitting wp-cron.php (or the site gets traffic)
+4. Use "Pull Feed Now" and read the status message it reports
+5. Enable WP_DEBUG and check error logs for [DriveHR Feed Sync] entries
 
 SUPPORT
 =======
@@ -57,5 +124,5 @@ Documentation: See README.md file
 
 This plugin maintains perfect parity between DriveHR and WordPress by automatically:
 ✓ Creating new jobs from DriveHR
-✓ Updating existing jobs  
-✓ Removing jobs no longer in DriveHR (NEW in v1.1.0!)
+✓ Updating existing jobs
+✓ Removing jobs no longer listed in DriveHR
