@@ -84,15 +84,64 @@ class DriveHR_Job_List_Block {
 	}
 
 	/**
+	 * Convert spacing preset value to CSS value
+	 *
+	 * Maps preset identifiers (xs, sm, md, lg, etc.) to actual pixel values.
+	 * If value is already a CSS value (contains px, rem, em, etc.), returns as-is.
+	 *
+	 * Spacing scale adapted from Kadence Blocks (GPL v2+)
+	 *
+	 * @since 1.8.5
+	 * @param string $value Preset identifier or CSS value
+	 * @return string CSS value with unit
+	 */
+	private function convert_spacing_preset( string $value ): string {
+		// If already a CSS value (contains unit), return as-is
+		if ( preg_match( '/\d+(px|rem|em|%|vh|vw)/', $value ) ) {
+			return $value;
+		}
+
+		// Preset to pixel mapping
+		$presets = array(
+			'0'   => '0px',
+			'xs'  => '8px',
+			'sm'  => '16px',
+			'md'  => '24px',
+			'lg'  => '32px',
+			'xl'  => '48px',
+			'xxl' => '64px',
+		);
+
+		return isset( $presets[ $value ] ) ? $presets[ $value ] : '0px';
+	}
+
+	/**
 	 * Enqueue frontend JavaScript and CSS
 	 *
+	 * Job list renders job cards, so it needs both the job-card JavaScript
+	 * (for accordion functionality) and CSS (for card styling).
+	 *
+	 * Note: As of WordPress 6.5+, block styles are loaded on-demand only for
+	 * blocks present on the page. Since job-list renders markup using job-card
+	 * CSS classes, we must explicitly enqueue the job-card stylesheet.
+	 *
 	 * @since 1.7.0
+	 * @since 1.9.2 Added explicit job-card stylesheet enqueue for WP 6.5+ compatibility
 	 */
 	public function enqueue_frontend_assets(): void {
 		// Only enqueue if we have job list blocks on the page
 		if ( ! has_block( 'drivehr/job-list' ) ) {
 			return;
 		}
+
+		// Enqueue job-card styles (job-list renders job cards using these CSS classes)
+		// Required since WP 6.5+ only loads styles for blocks explicitly on the page
+		wp_enqueue_style(
+			'drivehr-job-card-style',
+			plugin_dir_url( dirname( __FILE__ ) ) . 'blocks/job-card/style.css',
+			array(),
+			DRIVEHR_WEBHOOK_VERSION
+		);
 
 		// Enqueue frontend JavaScript (shares same accordion logic as job-card)
 		wp_enqueue_script(
@@ -167,27 +216,84 @@ class DriveHR_Job_List_Block {
 		// Get display preferences
 		$show_location = isset( $attributes['showLocation'] ) ? (bool) $attributes['showLocation'] : true;
 		$show_job_type = isset( $attributes['showJobType'] ) ? (bool) $attributes['showJobType'] : true;
-		$posts_per_page = isset( $attributes['postsPerPage'] ) ? absint( $attributes['postsPerPage'] ) : -1;
+		$posts_per_page = isset( $attributes['postsPerPage'] ) ? absint( $attributes['postsPerPage'] ) : 50;
 		$orderby = isset( $attributes['orderBy'] ) ? sanitize_text_field( $attributes['orderBy'] ) : 'date';
 		$order = isset( $attributes['order'] ) ? sanitize_text_field( $attributes['order'] ) : 'DESC';
+
+		// Extract card-specific styling attributes
+		$card_bg_color = isset( $attributes['cardBackgroundColor'] ) ? $attributes['cardBackgroundColor'] : '';
+		$card_text_color = isset( $attributes['cardTextColor'] ) ? $attributes['cardTextColor'] : '';
+		$card_title_color = isset( $attributes['cardTitleColor'] ) ? $attributes['cardTitleColor'] : '';
+		$card_border_radius = isset( $attributes['cardBorderRadius'] ) ? $attributes['cardBorderRadius'] : '8px';
+		$card_border = isset( $attributes['cardBorder'] ) ? $attributes['cardBorder'] : array( 'color' => '', 'style' => 'solid', 'width' => '0px' );
+		$card_shadow = isset( $attributes['cardShadow'] ) ? $attributes['cardShadow'] : '';
+		$card_padding = isset( $attributes['cardPadding'] ) ? $attributes['cardPadding'] : array( 'top' => 'md', 'right' => 'md', 'bottom' => 'md', 'left' => 'md' );
+
+		// Build card styling classes and inline styles
+		$card_classes = array( 'drivehr-job-card' );
+		$card_styles = array();
+
+		// Background color - WordPress color pickers return hex/rgb values
+		if ( ! empty( $card_bg_color ) ) {
+			$card_styles[] = 'background-color: ' . esc_attr( $card_bg_color );
+		}
+
+		// Text color - WordPress color pickers return hex/rgb values
+		if ( ! empty( $card_text_color ) ) {
+			$card_styles[] = 'color: ' . esc_attr( $card_text_color );
+		}
+
+		// Border
+		if ( ! empty( $card_border_radius ) ) {
+			$card_styles[] = 'border-radius: ' . esc_attr( $card_border_radius );
+		}
+		if ( is_array( $card_border ) && ! empty( $card_border['width'] ) && $card_border['width'] !== '0px' ) {
+			$card_styles[] = 'border-width: ' . esc_attr( $card_border['width'] );
+			$card_styles[] = 'border-style: ' . esc_attr( $card_border['style'] ?? 'solid' );
+			if ( ! empty( $card_border['color'] ) ) {
+				$card_styles[] = 'border-color: ' . esc_attr( $card_border['color'] );
+			}
+		}
+
+		// Shadow
+		if ( ! empty( $card_shadow ) ) {
+			$card_styles[] = 'box-shadow: ' . esc_attr( $card_shadow );
+		}
+
+		// Padding - convert presets to CSS values
+		if ( is_array( $card_padding ) ) {
+			$padding_parts = array();
+			$padding_parts[] = isset( $card_padding['top'] ) ? esc_attr( $this->convert_spacing_preset( $card_padding['top'] ) ) : '0';
+			$padding_parts[] = isset( $card_padding['right'] ) ? esc_attr( $this->convert_spacing_preset( $card_padding['right'] ) ) : '0';
+			$padding_parts[] = isset( $card_padding['bottom'] ) ? esc_attr( $this->convert_spacing_preset( $card_padding['bottom'] ) ) : '0';
+			$padding_parts[] = isset( $card_padding['left'] ) ? esc_attr( $this->convert_spacing_preset( $card_padding['left'] ) ) : '0';
+			$card_styles[] = 'padding: ' . implode( ' ', $padding_parts );
+		} elseif ( ! empty( $card_padding ) ) {
+			// Fallback for legacy string values
+			$card_styles[] = 'padding: ' . esc_attr( $card_padding );
+		}
+
+		// Build card wrapper attributes string. Block attributes are editor-
+		// controlled JSON, so run the assembled declarations through the same
+		// CSS filter wp_kses applies to inline styles: it drops url() values,
+		// expressions and any property outside the safe allowlist.
+		$card_class_attr = implode( ' ', $card_classes );
+		$safe_card_styles = ! empty( $card_styles ) ? safecss_filter_attr( implode( '; ', $card_styles ) ) : '';
+		$card_style_attr = '' !== $safe_card_styles ? ' style="' . esc_attr( $safe_card_styles ) . '"' : '';
 
 		// Query jobs
 		$jobs = get_posts(
 			array(
 				'post_type'      => 'drivehr_job',
-				'posts_per_page' => $posts_per_page === -1 ? -1 : $posts_per_page,
+				'posts_per_page' => $posts_per_page,
 				'post_status'    => 'publish',
 				'orderby'        => $orderby,
 				'order'          => $order,
 			)
 		);
 
-		// Generate block wrapper attributes (applies background, padding, etc. from block settings).
-		$wrapper_attributes = get_block_wrapper_attributes(
-			array(
-				'class' => 'drivehr-job-list',
-			)
-		);
+		// Simple container wrapper (no background styling - that goes on cards)
+		$wrapper_attributes = 'class="drivehr-job-list"';
 
 		// Start output buffering.
 		ob_start();
@@ -201,11 +307,13 @@ class DriveHR_Job_List_Block {
 					// Get job metadata for wrapper attributes
 					$external_id = get_post_meta( $job->ID, 'job_id', true );
 
-					// Create wrapper attributes for each card (NOT using get_block_wrapper_attributes)
+					// Create wrapper attributes for each card with styling from block settings
 					$card_wrapper = sprintf(
-						'class="drivehr-job-card" data-job-id="%s" data-external-id="%s" itemscope itemtype="https://schema.org/JobPosting"',
+						'class="%s" data-job-id="%s" data-external-id="%s" itemscope itemtype="https://schema.org/JobPosting"%s',
+						esc_attr( $card_class_attr ),
 						esc_attr( $job->ID ),
-						esc_attr( $external_id )
+						esc_attr( $external_id ),
+						$card_style_attr
 					);
 
 					echo $this->render_job_card(
@@ -215,6 +323,7 @@ class DriveHR_Job_List_Block {
 							'show_job_type'       => $show_job_type,
 							'use_wrapper'         => true,
 							'wrapper_attributes'  => $card_wrapper,
+							'title_color'         => $card_title_color,
 						)
 					);
 					?>

@@ -70,7 +70,7 @@
 				const applyUrl = this.getAttribute('data-apply-url');
 				const jobTitle = this.getAttribute('data-job-title');
 
-				if (!applyUrl) return;
+				if (!applyUrl || !isFrameableUrl(applyUrl)) return;
 
 				// Create modal
 				const modal = createModal(applyUrl, jobTitle);
@@ -119,6 +119,8 @@
 						title="Job application form for ${escapeHtml(jobTitle)}"
 						class="drivehr-modal__iframe"
 						frameborder="0"
+						sandbox="allow-forms allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox"
+						referrerpolicy="strict-origin-when-cross-origin"
 						allowfullscreen
 					></iframe>
 				</div>
@@ -187,7 +189,23 @@
 			'"': '&quot;',
 			"'": '&#039;'
 		};
-		return text.replace(/[&<>"']/g, m => map[m]);
+		return String(text ?? '').replace(/[&<>"']/g, m => map[m]);
+	}
+
+	/**
+	 * Only frame web URLs; anything else (javascript:, data:, blob:) is refused
+	 * even though the server already filters apply_url to http(s).
+	 *
+	 * @param {string} url - Candidate apply URL
+	 * @returns {boolean} True when the URL is absolute http(s)
+	 */
+	function isFrameableUrl(url) {
+		try {
+			const parsed = new URL(url, window.location.href);
+			return parsed.protocol === 'https:' || parsed.protocol === 'http:';
+		} catch (error) {
+			return false;
+		}
 	}
 
 	/**

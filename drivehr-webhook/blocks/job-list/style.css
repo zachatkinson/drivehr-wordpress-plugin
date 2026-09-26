@@ -11,6 +11,7 @@
 	display: flex;
 	flex-direction: column;
 	gap: var(--wp--preset--spacing--40, 1.5rem);
+	background: transparent !important; /* List container should be transparent - styling goes on cards */
 }
 
 .drivehr-job-list__empty {
@@ -33,6 +34,11 @@
 
 /* Job card spacing within list */
 .drivehr-job-list .drivehr-job-card {
+	margin-bottom: var(--wp--preset--spacing--30, 1rem);
+}
+
+/* Remove margin from last card */
+.drivehr-job-list .drivehr-job-card:last-child {
 	margin-bottom: 0;
 }
 

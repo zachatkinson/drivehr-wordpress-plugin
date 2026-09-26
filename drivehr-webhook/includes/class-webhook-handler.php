@@ -43,11 +43,6 @@ class DriveHR_Webhook_Handler {
     private const WEBHOOK_PATH = '/webhook/drivehr-sync';
 
     /**
-     * Maximum jobs allowed per webhook request to prevent resource exhaustion
-     */
-    private const MAX_JOBS_PER_REQUEST = 100;
-
-    /**
      * Rate limit: maximum requests per minute per IP address
      */
     private const RATE_LIMIT_MAX_REQUESTS = 10;
@@ -61,6 +56,27 @@ class DriveHR_Webhook_Handler {
      * Maximum timestamp difference (seconds) to prevent replay attacks
      */
     private const MAX_TIMESTAMP_DRIFT = 300; // 5 minutes
+
+    /**
+     * Maximum accepted request body size in bytes (2 MiB)
+     *
+     * A hundred jobs with rich descriptions is well under 1 MiB; anything
+     * larger is either a bug or an attempt to exhaust memory.
+     *
+     * @since 2.3.0
+     */
+    private const MAX_PAYLOAD_BYTES = 2097152;
+
+    /**
+     * Server variable that carries the timestamp-bound HMAC (v2 scheme)
+     *
+     * The v2 signature is computed over "{timestamp}.{raw_body}" so a captured
+     * request cannot be replayed with a fresh timestamp. The legacy
+     * X-Webhook-Signature header (HMAC over the body alone) is ignored.
+     *
+     * @since 2.3.0
+     */
+    private const SIGNATURE_SERVER_KEY = 'HTTP_X_WEBHOOK_SIGNATURE_V2';
 
     /**
      * Get singleton instance
@@ -148,15 +164,27 @@ class DriveHR_Webhook_Handler {
         }
         
         // Only handle POST requests
-        if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-            $this->log_webhook_activity('Invalid method', ['method' => $_SERVER['REQUEST_METHOD']]);
+        $method = $_SERVER['REQUEST_METHOD'] ?? '';
+        if ($method !== 'POST') {
+            $this->log_webhook_activity('Invalid method', ['method' => $method]);
             $this->respond(405, [
                 'error' => 'Method not allowed',
                 'allowed_methods' => ['POST'],
                 'timestamp' => current_time('c')
             ]);
         }
-        
+
+        // Only accept JSON bodies; form-encoded and multipart requests are
+        // never legitimate here and are a common WAF-evasion shape.
+        if (!$this->has_json_content_type()) {
+            $this->log_webhook_activity('Unsupported content type');
+            $this->respond(415, [
+                'error' => 'Unsupported media type',
+                'expected' => 'application/json',
+                'timestamp' => current_time('c')
+            ]);
+        }
+
         // Apply rate limiting by IP
         if (!$this->check_rate_limit()) {
             $this->log_webhook_activity('Rate limit exceeded', ['ip' => $this->get_client_ip()]);
@@ -166,18 +194,37 @@ class DriveHR_Webhook_Handler {
                 'timestamp' => current_time('c')
             ]);
         }
-        
-        // Verify webhook signature and timestamp
-        if (!$this->verify_signature()) {
+
+        // Read the body once, refusing oversized requests before buffering them
+        $payload = $this->read_request_body();
+        if ($payload === null) {
+            $this->log_webhook_activity('Payload too large');
+            $this->respond(413, [
+                'error' => 'Payload too large',
+                'max_bytes' => self::MAX_PAYLOAD_BYTES,
+                'timestamp' => current_time('c')
+            ]);
+        }
+
+        // Verify timestamp-bound webhook signature
+        if (!$this->verify_signature($payload)) {
             $this->log_webhook_activity('Invalid signature', ['ip' => $this->get_client_ip()]);
             $this->respond(401, [
                 'error' => 'Unauthorized - Invalid signature',
                 'timestamp' => current_time('c')
             ]);
         }
-        
+
+        // Reject a signed request that has already been processed
+        if (!$this->register_signature_nonce()) {
+            $this->log_webhook_activity('Replayed request', ['ip' => $this->get_client_ip()]);
+            $this->respond(401, [
+                'error' => 'Unauthorized - Duplicate request',
+                'timestamp' => current_time('c')
+            ]);
+        }
+
         // Parse and validate JSON payload
-        $payload = file_get_contents('php://input');
         $data = json_decode($payload, true);
         
         if (json_last_error() !== JSON_ERROR_NONE) {
@@ -198,15 +245,11 @@ class DriveHR_Webhook_Handler {
             ]);
         }
         
-        // Process jobs with error handling
+        // Process jobs with error handling (delegated to shared sync engine, v2.2.0)
         try {
-            $result = $this->process_jobs($data['jobs']);
-            
-            // Remove stale jobs that are no longer in DriveHR
-            $current_job_ids = array_column($data['jobs'], 'id');
-            $removal_result = $this->remove_stale_jobs($current_job_ids);
-            $result['removed'] = $removal_result['removed'];
-            
+            $sync_engine = new DriveHR_Job_Sync();
+            $result = $sync_engine->sync($data['jobs']);
+
             $this->log_webhook_activity('Jobs processed successfully', $result);
             
             // Fire webhook end action for integrations
@@ -248,32 +291,91 @@ class DriveHR_Webhook_Handler {
     }
     
     /**
-     * Get client IP address with proxy support
-     * 
-     * @return string Client IP address
+     * Get client IP address
+     *
+     * Uses REMOTE_ADDR by default. Forwarding headers such as X-Forwarded-For
+     * are attacker-controlled unless a trusted proxy/CDN sets them, so they are
+     * only honoured when the site owner names the header explicitly:
+     *
+     *   define('DRIVEHR_TRUSTED_PROXY_HEADER', 'CF-Connecting-IP');
+     *
+     * Trusting arbitrary forwarding headers previously allowed the per-IP rate
+     * limit to be bypassed by sending a fresh spoofed header on every request.
+     *
+     * @since 2.3.0 Stopped trusting undeclared forwarding headers
+     * @return string Client IP address, or 0.0.0.0 if none is valid
      */
     private function get_client_ip(): string {
-        // Check for IP from various headers (proxy-aware)
-        $headers = [
-            'HTTP_CF_CONNECTING_IP',     // Cloudflare
-            'HTTP_X_FORWARDED_FOR',      // Standard proxy header
-            'HTTP_X_FORWARDED',          // Alternative proxy header
-            'HTTP_X_CLUSTER_CLIENT_IP',  // Cluster environments
-            'HTTP_FORWARDED_FOR',        // RFC 7239
-            'HTTP_FORWARDED',            // RFC 7239
-            'REMOTE_ADDR'                // Direct connection
-        ];
-        
-        foreach ($headers as $header) {
-            if (!empty($_SERVER[ $header ])) {
-                $ip = trim(explode(',', $_SERVER[ $header ])[0]);
-                if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE)) {
-                    return $ip;
-                }
+        if (defined('DRIVEHR_TRUSTED_PROXY_HEADER')
+            && is_string(DRIVEHR_TRUSTED_PROXY_HEADER)
+            && DRIVEHR_TRUSTED_PROXY_HEADER !== ''
+        ) {
+            $server_key = 'HTTP_' . strtoupper(str_replace('-', '_', DRIVEHR_TRUSTED_PROXY_HEADER));
+            $forwarded = trim(explode(',', (string) ($_SERVER[ $server_key ] ?? ''))[0]);
+            if ($forwarded !== '' && filter_var($forwarded, FILTER_VALIDATE_IP)) {
+                return $forwarded;
             }
         }
-        
-        return $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
+
+        $remote_addr = (string) ($_SERVER['REMOTE_ADDR'] ?? '');
+        return filter_var($remote_addr, FILTER_VALIDATE_IP) ? $remote_addr : '0.0.0.0';
+    }
+
+    /**
+     * Check that the request declares a JSON body
+     *
+     * @since 2.3.0
+     * @return bool True when Content-Type starts with application/json
+     */
+    private function has_json_content_type(): bool {
+        $content_type = (string) ($_SERVER['CONTENT_TYPE'] ?? $_SERVER['HTTP_CONTENT_TYPE'] ?? '');
+        return strpos(strtolower(trim($content_type)), 'application/json') === 0;
+    }
+
+    /**
+     * Read the raw request body, enforcing the size limit
+     *
+     * Checks the declared Content-Length first, then reads at most one byte
+     * past the limit so chunked or mis-declared bodies are still caught
+     * without buffering an unbounded stream.
+     *
+     * @since 2.3.0
+     * @return string|null Raw body, or null when it exceeds MAX_PAYLOAD_BYTES
+     */
+    private function read_request_body(): ?string {
+        $declared_length = (int) ($_SERVER['CONTENT_LENGTH'] ?? 0);
+        if ($declared_length > self::MAX_PAYLOAD_BYTES) {
+            return null;
+        }
+
+        $payload = file_get_contents('php://input', false, null, 0, self::MAX_PAYLOAD_BYTES + 1);
+        if ($payload === false || strlen($payload) > self::MAX_PAYLOAD_BYTES) {
+            return null;
+        }
+
+        return $payload;
+    }
+
+    /**
+     * Record the request signature so the same signed request cannot be replayed
+     *
+     * The signature covers the timestamp, so every legitimate request is unique.
+     * Seen signatures are remembered for twice the timestamp drift window, which
+     * is the longest a replay could otherwise still pass the timestamp check.
+     *
+     * @since 2.3.0
+     * @return bool True if this signature has not been seen before
+     */
+    private function register_signature_nonce(): bool {
+        $signature = (string) ($_SERVER[ self::SIGNATURE_SERVER_KEY ] ?? '');
+        $transient_key = 'drivehr_webhook_seen_' . hash('sha256', $signature);
+
+        if (get_transient($transient_key) !== false) {
+            return false;
+        }
+
+        set_transient($transient_key, time(), self::MAX_TIMESTAMP_DRIFT * 2);
+        return true;
     }
     
     /**
@@ -305,50 +407,47 @@ class DriveHR_Webhook_Handler {
     }
     
     /**
-     * Verify HMAC signature with timestamp validation
-     * 
-     * Implements secure webhook verification using HMAC-SHA256 with
-     * timing-safe comparison and replay attack protection via timestamp
-     * validation.
-     * 
-     * Expected headers from Netlify function:
-     * - X-Webhook-Signature: sha256=<hmac_hash>
-     * - X-Webhook-Timestamp: <unix_timestamp>
-     * 
+     * Verify the timestamp-bound HMAC signature
+     *
+     * Expected headers from the Netlify function:
+     * - X-Webhook-Timestamp: <unix_timestamp> (must be within MAX_TIMESTAMP_DRIFT)
+     * - X-Webhook-Signature-V2: sha256=HMAC_SHA256("{timestamp}.{raw_body}", secret)
+     *
+     * Binding the timestamp into the signed message is what makes the drift
+     * window meaningful: before 2.3.0 the timestamp was checked but not signed,
+     * so a captured body + signature could be replayed indefinitely with a new
+     * timestamp header.
+     *
+     * @since 2.3.0 Signature now covers the timestamp; legacy header ignored
+     * @param string $payload Raw request body (already size-checked)
      * @return bool True if signature and timestamp are valid
      */
-    private function verify_signature(): bool {
-        // Get signature and timestamp from headers
-        $signature = $_SERVER['HTTP_X_WEBHOOK_SIGNATURE'] ?? '';
-        $timestamp = $_SERVER['HTTP_X_WEBHOOK_TIMESTAMP'] ?? '';
-        
-        // Validate timestamp to prevent replay attacks
-        if (empty($timestamp) || !is_numeric($timestamp)) {
+    private function verify_signature(string $payload): bool {
+        $signature = (string) ($_SERVER[ self::SIGNATURE_SERVER_KEY ] ?? '');
+        $timestamp = (string) ($_SERVER['HTTP_X_WEBHOOK_TIMESTAMP'] ?? '');
+
+        // Timestamp must be a plain unsigned integer within the drift window
+        if ($timestamp === '' || !ctype_digit($timestamp) || strlen($timestamp) > 12) {
             return false;
         }
-        
-        $timestamp_diff = abs(time() - intval($timestamp));
-        if ($timestamp_diff > self::MAX_TIMESTAMP_DRIFT) {
+        if (abs(time() - (int) $timestamp) > self::MAX_TIMESTAMP_DRIFT) {
             return false;
         }
-        
-        // Get webhook secret
+
         $secret = $this->get_webhook_secret();
-        if (empty($secret)) {
+        if ($secret === '') {
             return false;
         }
-        
-        // Validate signature format
-        if (empty($signature) || substr($signature, 0, 7) !== 'sha256=') {
+
+        // "sha256=" + 64 hex characters
+        if (strlen($signature) !== 71 || substr($signature, 0, 7) !== 'sha256=') {
             return false;
         }
-        
-        // Calculate expected signature
-        $payload = file_get_contents('php://input');
-        $expected = 'sha256=' . hash_hmac('sha256', $payload, $secret);
-        
-        // Use timing-safe comparison to prevent timing attacks
-        return hash_equals($signature, $expected);
+
+        $expected = 'sha256=' . hash_hmac('sha256', $timestamp . '.' . $payload, $secret);
+
+        // Timing-safe comparison; known value first per PHP documentation
+        return hash_equals($expected, $signature);
     }
     
     /**
@@ -367,7 +466,7 @@ class DriveHR_Webhook_Handler {
         }
         
         // Check job count limits
-        if (count($data['jobs']) > self::MAX_JOBS_PER_REQUEST) {
+        if (count($data['jobs']) > DriveHR_Job_Sync::MAX_JOBS_PER_SYNC) {
             return false;
         }
         
@@ -380,350 +479,6 @@ class DriveHR_Webhook_Handler {
         }
         
         return true;
-    }
-    
-    /**
-     * Process array of jobs from webhook payload
-     * 
-     * Iterates through jobs array and stores each job as a WordPress post
-     * with proper error handling and transaction safety.
-     * 
-     * @param array $jobs Array of job data from webhook
-     * @return array Processing results with counts and errors
-     * @throws Exception If critical processing error occurs.
-     */
-    private function process_jobs(array $jobs): array {
-        global $wpdb;
-
-        $processed = 0;
-        $updated = 0;
-        $skipped = 0;
-        $errors = [];
-
-        // OPTIMIZATION 1: Increase PHP limits for large batches
-        @ini_set('memory_limit', '256M');
-        @ini_set('max_execution_time', '120');
-
-        // OPTIMIZATION 2: Bulk lookup existing jobs (single query instead of N queries)
-        $existing_jobs_map = $this->bulk_lookup_existing_jobs($jobs);
-
-        // OPTIMIZATION 3: Single batch transaction for all jobs
-        $wpdb->query('START TRANSACTION');
-
-        try {
-            foreach ($jobs as $index => $job) {
-                if (!is_array($job)) {
-                    $errors[] = "Job at index {$index}: Invalid job data format";
-                    continue;
-                }
-
-                try {
-                    // Pass existing jobs map to avoid per-job queries
-                    $result = $this->store_job($job, $existing_jobs_map);
-                    if ($result['action'] === 'created') {
-                        $processed++;
-                    } elseif ($result['action'] === 'updated') {
-                        $updated++;
-                    } else {
-                        $skipped++;
-                    }
-                } catch (Exception $e) {
-                    $job_id = isset($job['id']) ? $job['id'] : 'unknown';
-                    $errors[] = "Job '{$job_id}': " . $e->getMessage();
-                }
-            }
-
-            // Commit all changes as single transaction
-            $wpdb->query('COMMIT');
-
-            // OPTIMIZATION: Resource cleanup to prevent memory leaks
-            // This is critical for large batch operations (v1.6.0)
-            wp_reset_postdata(); // Clear global post data after wp_insert_post/wp_update_post
-            unset($existing_jobs_map, $jobs); // Free large arrays from memory
-            if (function_exists('gc_collect_cycles')) {
-                gc_collect_cycles(); // Force PHP garbage collection
-            }
-
-        } catch (Exception $e) {
-            // Rollback all changes on any critical error
-            $wpdb->query('ROLLBACK');
-            throw $e;
-        }
-
-        return [
-            'success' => true,
-            'processed' => $processed,
-            'updated' => $updated,
-            'skipped' => $skipped,
-            'total' => count($jobs),
-            'errors' => $errors,
-            'timestamp' => current_time('c'),
-            'source' => 'drivehr-netlify-sync'
-        ];
-    }
-
-    /**
-     * Bulk lookup existing jobs by job IDs
-     *
-     * PERFORMANCE OPTIMIZATION: Single database query to fetch all existing
-     * job post IDs instead of individual meta queries per job.
-     *
-     * @param array $jobs Array of job data
-     * @return array Map of job_id => post_id for existing jobs
-     * @since 1.2.0
-     */
-    private function bulk_lookup_existing_jobs(array $jobs): array {
-        global $wpdb;
-
-        // Extract all job IDs from incoming jobs
-        $job_ids = array_filter(array_map(function($job) {
-            return $job['id'] ?? null;
-        }, $jobs));
-
-        if (empty($job_ids)) {
-            return [];
-        }
-
-        // Build placeholders for prepared statement
-        $placeholders = implode(',', array_fill(0, count($job_ids), '%s'));
-
-        // Single query to fetch all existing job post IDs
-        $query = $wpdb->prepare("
-            SELECT pm.meta_value as job_id, pm.post_id
-            FROM {$wpdb->postmeta} pm
-            INNER JOIN {$wpdb->posts} p ON pm.post_id = p.ID
-            WHERE pm.meta_key = 'job_id'
-            AND pm.meta_value IN ($placeholders)
-            AND p.post_type = 'drivehr_job'
-            AND p.post_status != 'trash'
-        ", $job_ids);
-
-        $results = $wpdb->get_results($query);
-
-        // Build map of job_id => post_id
-        $map = [];
-        foreach ($results as $row) {
-            $map[$row->job_id] = (int)$row->post_id;
-        }
-
-        return $map;
-    }
-    
-    /**
-     * Prepare sanitized post data from raw job data
-     *
-     * Extracts and sanitizes all job fields from the webhook payload,
-     * handling various field name formats for backward compatibility.
-     *
-     * @param array $job Raw job data from webhook payload
-     * @return array Sanitized post data ready for wp_insert_post/wp_update_post
-     * @since 1.1.4
-     */
-    private function prepare_job_post_data(array $job): array {
-        return [
-            'post_type' => 'drivehr_job',
-            'post_title' => sanitize_text_field($job['title']),
-            'post_content' => wp_kses_post($job['description'] ?? ''),
-            'post_excerpt' => sanitize_textarea_field($job['summary'] ?? ''),
-            'post_status' => 'publish',
-            'post_date' => $this->parse_date($job['postedDate'] ?? $job['posted_date'] ?? ''),
-            'meta_input' => $this->prepare_job_meta_data($job)
-        ];
-    }
-
-    /**
-     * Prepare sanitized meta data from raw job data
-     *
-     * Sanitizes all job metadata fields, handling backward compatibility
-     * for both camelCase and snake_case field naming conventions.
-     *
-     * PERFORMANCE OPTIMIZATION: Excludes description from raw_data to reduce
-     * database storage size (description is stored in post_content).
-     *
-     * @param array $job Raw job data from webhook payload
-     * @return array Sanitized meta data array
-     * @since 1.1.4
-     */
-    private function prepare_job_meta_data(array $job): array {
-        // OPTIMIZATION: Exclude description from raw_data (stored in post_content already)
-        $job_meta_copy = $job;
-        unset($job_meta_copy['description']);
-
-        return [
-            'job_id' => sanitize_text_field($job['id']),
-            'department' => sanitize_text_field($job['department'] ?? ''),
-            'location' => sanitize_text_field($job['location'] ?? ''),
-            'job_type' => sanitize_text_field($job['type'] ?? $job['jobType'] ?? ''),
-            'employment_type' => sanitize_text_field($job['employmentType'] ?? ''),
-            'salary_range' => sanitize_text_field($job['salaryRange'] ?? $job['salary_range'] ?? ''),
-            'apply_url' => esc_url_raw($job['applyUrl'] ?? $job['apply_url'] ?? ''),
-            'posted_date' => sanitize_text_field($job['postedDate'] ?? $job['posted_date'] ?? ''),
-            'expiry_date' => sanitize_text_field($job['expiryDate'] ?? $job['expiry_date'] ?? ''),
-            'source' => 'drivehr',
-            'source_url' => esc_url_raw($job['sourceUrl'] ?? ''),
-            'raw_data' => wp_json_encode($job_meta_copy, JSON_UNESCAPED_UNICODE),
-            'last_updated' => current_time('mysql'),
-            'sync_version' => DRIVEHR_WEBHOOK_VERSION
-        ];
-    }
-
-    /**
-     * Store or update a single job in WordPress
-     *
-     * PERFORMANCE OPTIMIZATION: Uses bulk lookup map to avoid per-job queries.
-     * Transactions are handled at batch level in process_jobs().
-     *
-     * @param array $job Job data from webhook payload
-     * @param array $existing_jobs_map Map of job_id => post_id from bulk lookup
-     * @return array Result with action taken and post ID
-     * @throws Exception If job storage fails.
-     */
-    private function store_job(array $job, array $existing_jobs_map = []): array {
-        // Validate required fields
-        if (empty($job['id']) || empty($job['title'])) {
-            throw new Exception('Missing required fields: id and title are required');
-        }
-
-        // OPTIMIZATION: Check existing job from bulk lookup map (no query needed)
-        $existing_post_id = $existing_jobs_map[$job['id']] ?? null;
-
-        // Prepare sanitized job data
-        $post_data = $this->prepare_job_post_data($job);
-
-        $action = 'created';
-
-        if ($existing_post_id) {
-            // Fire before update action
-            do_action('drivehr_before_job_update', $job);
-
-            // Update existing job
-            $post_data['ID'] = $existing_post_id;
-            $result = wp_update_post($post_data, true);
-            $action = 'updated';
-        } else {
-            // Fire before insert action
-            do_action('drivehr_before_job_insert', $job);
-
-            // Create new job
-            $result = wp_insert_post($post_data, true);
-            $action = 'created';
-        }
-
-        // Check for WordPress errors
-        if (is_wp_error($result)) {
-            throw new Exception('WordPress error: ' . $result->get_error_message());
-        }
-
-        return [
-            'action' => $action,
-            'post_id' => $result,
-            'job_id' => $job['id']
-        ];
-    }
-    
-    /**
-     * Remove stale jobs that are no longer in DriveHR
-     *
-     * Compares current job IDs from DriveHR with existing jobs in WordPress
-     * and removes any jobs that are no longer present in the DriveHR feed.
-     * This maintains perfect parity between DriveHR and WordPress job listings.
-     *
-     * PERFORMANCE OPTIMIZATION (v1.6.0): Uses single bulk query instead of N+1
-     * pattern. For 100 jobs: 1 query vs 101 queries (90% reduction).
-     *
-     * @param array $current_job_ids Array of job IDs currently in DriveHR
-     * @return array Result with count of removed jobs
-     * @throws Exception If job removal fails.
-     * @since 1.1.0
-     * @since 1.6.0 Optimized to eliminate N+1 query pattern
-     */
-    private function remove_stale_jobs(array $current_job_ids): array {
-        global $wpdb;
-
-        // Start database transaction for atomicity
-        $wpdb->query('START TRANSACTION');
-
-        try {
-            // OPTIMIZATION: Single query to get all existing jobs with their job_id meta
-            // Replaces N+1 query pattern (1 get_posts query + N get_post_meta calls)
-            $query = "
-                SELECT p.ID as post_id, pm.meta_value as job_id
-                FROM {$wpdb->posts} p
-                INNER JOIN {$wpdb->postmeta} pm ON p.ID = pm.post_id
-                WHERE p.post_type = 'drivehr_job'
-                AND p.post_status != 'trash'
-                AND pm.meta_key = 'job_id'
-            ";
-
-            $existing_jobs = $wpdb->get_results($query);
-
-            $removed = 0;
-            $removed_job_ids = [];
-
-            foreach ($existing_jobs as $job) {
-                // If this job is not in the current DriveHR list, remove it
-                if (!in_array($job->job_id, $current_job_ids, true)) {
-                    // Fire before delete action for integrations
-                    do_action('drivehr_before_job_delete', $job->post_id, $job->job_id);
-
-                    // Permanently delete the job (bypass trash)
-                    $delete_result = wp_delete_post($job->post_id, true);
-
-                    if ($delete_result) {
-                        $removed++;
-                        $removed_job_ids[] = $job->job_id;
-
-                        // Fire after delete action for integrations
-                        do_action('drivehr_after_job_delete', $job->post_id, $job->job_id);
-                    }
-                }
-            }
-
-            // Commit transaction
-            $wpdb->query('COMMIT');
-
-            // Log removal activity
-            if ($removed > 0) {
-                $this->log_webhook_activity(
-                    "Removed {$removed} stale jobs",
-                    ['removed_job_ids' => $removed_job_ids]
-                );
-            }
-
-            return [
-                'removed' => $removed,
-                'removed_job_ids' => $removed_job_ids
-            ];
-
-        } catch (Exception $e) {
-            // Rollback transaction on any error
-            $wpdb->query('ROLLBACK');
-            throw new Exception('Failed to remove stale jobs: ' . $e->getMessage());
-        }
-    }
-    
-    /**
-     * Parse date string to WordPress format
-     *
-     * Converts various date formats to WordPress-compatible MySQL datetime format.
-     * Uses gmdate() for timezone consistency as recommended by WordPress standards.
-     *
-     * @param string $date_string Date in various formats
-     * @return string WordPress-compatible date string in GMT
-     */
-    private function parse_date(string $date_string): string {
-        if (empty($date_string)) {
-            return current_time('mysql', true);
-        }
-
-        // Try to parse the date
-        $timestamp = strtotime($date_string);
-        if ($timestamp === false) {
-            // If parsing fails, use current time
-            return current_time('mysql', true);
-        }
-
-        return gmdate('Y-m-d H:i:s', $timestamp);
     }
     
     /**
@@ -763,18 +518,14 @@ class DriveHR_Webhook_Handler {
         // Set HTTP status
         status_header($status_code);
         
-        // Set security headers
+        // Set security headers; responses are machine-to-machine and never cacheable
         header('Content-Type: application/json; charset=utf-8');
         header('X-Content-Type-Options: nosniff');
         header('X-Frame-Options: DENY');
         header('X-Robots-Tag: noindex, nofollow, noarchive, nosnippet');
-        
-        // Add cache headers for error responses
-        if ($status_code >= 400) {
-            header('Cache-Control: no-cache, no-store, must-revalidate');
-            header('Pragma: no-cache');
-            header('Expires: 0');
-        }
+        header('Referrer-Policy: no-referrer');
+        header("Content-Security-Policy: default-src 'none'; frame-ancestors 'none'");
+        header('Cache-Control: no-store, max-age=0');
         
         // Ensure data has consistent structure
         if (!isset($data['timestamp'])) {
